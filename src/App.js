@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import CNSQuiz1 from "./quiz/CNSQuiz1";
 import BloodQuiz1 from "./quiz/BloodQuiz1";
 import './App.css';
@@ -12,6 +12,25 @@ function useIsMobile() {
     return () => window.removeEventListener("resize", handler);
   }, []);
   return isMobile;
+}
+
+// ─── Shuffle Utility ─────────────────────────────────────────────────────────
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Shuffle questions and their options, keeping answer tracking intact
+function buildShuffledTest(test) {
+  const shuffledQuestions = shuffleArray(test.questions).map(q => {
+    const shuffledOptions = shuffleArray(q.options);
+    return { ...q, options: shuffledOptions };
+  });
+  return { ...test, questions: shuffledQuestions };
 }
 
 // ─── Sample Data ────────────────────────────────────────────────────────────
@@ -247,14 +266,108 @@ function SchemaReference() {
 
 // ─── Test Interface ───────────────────────────────────────────────────────────
 function TestInterface({ test, onFinish, onBack }) {
+  // Shuffle once on mount, never again
+  const shuffledTest = useMemo(() => buildShuffledTest(test), [test]);
+
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState({});
-  const [timeLeft, setTimeLeft] = useState(test.duration);
+  const [timeLeft, setTimeLeft] = useState(shuffledTest.duration);
   const [submitted, setSubmitted] = useState(false);
   const [flagged, setFlagged] = useState(new Set());
   const [showQNav, setShowQNav] = useState(false);
   const isMobile = useIsMobile();
 
+  // ── Anti-cheat state ──────────────────────────────────────────────────────
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fsWarning, setFsWarning] = useState(false);          // lost fullscreen warning
+  const [tabWarnings, setTabWarnings] = useState(0);          // tab-switch counter
+  const [showTabAlert, setShowTabAlert] = useState(false);
+  const [copyWarning, setCopyWarning] = useState(false);
+  const testContainerRef = useRef(null);
+
+  // ── Enter fullscreen on desktop ───────────────────────────────────────────
+  useEffect(() => {
+    if (isMobile) return;
+    const el = document.documentElement;
+    const enter = async () => {
+      try {
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+        setIsFullscreen(true);
+      } catch (_) { /* user denied or not supported */ }
+    };
+    enter();
+    return () => {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    };
+  }, [isMobile]);
+
+  // ── Detect fullscreen exit ────────────────────────────────────────────────
+  useEffect(() => {
+    if (isMobile || submitted) return;
+    const handleFsChange = () => {
+      const inFs = !!document.fullscreenElement;
+      setIsFullscreen(inFs);
+      if (!inFs) setFsWarning(true);
+    };
+    document.addEventListener("fullscreenchange", handleFsChange);
+    document.addEventListener("webkitfullscreenchange", handleFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFsChange);
+      document.removeEventListener("webkitfullscreenchange", handleFsChange);
+    };
+  }, [isMobile, submitted]);
+
+  // ── Detect tab switch / window blur ──────────────────────────────────────
+  useEffect(() => {
+    if (submitted) return;
+    const handleBlur = () => {
+      setTabWarnings(n => n + 1);
+      setShowTabAlert(true);
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, [submitted]);
+
+  // ── Block copy / paste / cut / contextmenu ────────────────────────────────
+  useEffect(() => {
+    if (submitted) return;
+    const block = (e) => {
+      e.preventDefault();
+      setCopyWarning(true);
+      setTimeout(() => setCopyWarning(false), 2500);
+    };
+    const blockCtx = (e) => e.preventDefault();
+    document.addEventListener("copy", block);
+    document.addEventListener("cut", block);
+    document.addEventListener("paste", block);
+    document.addEventListener("contextmenu", blockCtx);
+    return () => {
+      document.removeEventListener("copy", block);
+      document.removeEventListener("cut", block);
+      document.removeEventListener("paste", block);
+      document.removeEventListener("contextmenu", blockCtx);
+    };
+  }, [submitted]);
+
+  // ── Block keyboard shortcuts (Ctrl+C, Ctrl+V, PrintScreen, etc.) ─────────
+  useEffect(() => {
+    if (submitted) return;
+    const handleKey = (e) => {
+      const blocked = (
+        (e.ctrlKey || e.metaKey) && ["c", "v", "x", "u", "s", "p", "a"].includes(e.key.toLowerCase())
+      ) || e.key === "PrintScreen";
+      if (blocked) {
+        e.preventDefault();
+        setCopyWarning(true);
+        setTimeout(() => setCopyWarning(false), 2500);
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [submitted]);
+
+  // ── Timer ─────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(() => setSubmitted(true), []);
 
   useEffect(() => {
@@ -266,29 +379,73 @@ function TestInterface({ test, onFinish, onBack }) {
     return () => clearTimeout(t);
   }, [timeLeft, submitted, handleSubmit]);
 
+  // ── Re-enter fullscreen handler ───────────────────────────────────────────
+  const reEnterFullscreen = async () => {
+    try {
+      await document.documentElement.requestFullscreen();
+      setIsFullscreen(true);
+      setFsWarning(false);
+    } catch (_) {}
+  };
+
   if (submitted) {
     return (
       <Results
-        test={test}
+        test={shuffledTest}
         answers={answers}
-        timeTaken={test.duration - timeLeft}
+        timeTaken={shuffledTest.duration - timeLeft}
         onBack={onBack}
       />
     );
   }
 
-  const q = test.questions[current];
-  const totalQ = test.questions.length;
-  const answered = Object.keys(answers).length;
-  const pct = Math.round((timeLeft / test.duration) * 100);
+  const q = shuffledTest.questions[current];
+  const totalQ = shuffledTest.questions.length;
+  const answered = Object.keys(answers).filter(k => answers[k] !== null).length;
+  const pct = Math.round((timeLeft / shuffledTest.duration) * 100);
   const timerDanger = timeLeft < 60;
 
   return (
-    <div style={styles.testWrap}>
+    <div
+      ref={testContainerRef}
+      style={{ ...styles.testWrap, userSelect: "none", WebkitUserSelect: "none" }}
+    >
+      {/* ── Fullscreen warning overlay ── */}
+      {fsWarning && !isMobile && (
+        <div style={styles.warningOverlay}>
+          <div style={styles.warningBox}>
+            <div style={styles.warningIcon}>⚠️</div>
+            <h2 style={styles.warningTitle}>Fullscreen Required</h2>
+            <p style={styles.warningDesc}>
+              You exited fullscreen mode. Please return to fullscreen to continue the test.
+              This incident has been noted.
+            </p>
+            <button style={styles.warningBtn} onClick={reEnterFullscreen}>
+              Re-enter Fullscreen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab switch alert ── */}
+      {showTabAlert && (
+        <div style={styles.tabAlertBanner}>
+          <span>⚠ Tab switch detected ({tabWarnings} time{tabWarnings !== 1 ? "s" : ""}). This activity is being tracked.</span>
+          <button style={styles.tabAlertClose} onClick={() => setShowTabAlert(false)}>✕</button>
+        </div>
+      )}
+
+      {/* ── Copy/paste blocked notice ── */}
+      {copyWarning && (
+        <div style={styles.copyBanner}>
+          🚫 Copy / Paste is disabled during the test
+        </div>
+      )}
+
       {/* Timer Bar */}
       <div style={{ ...styles.timerBar, ...(isMobile ? styles.timerBarMobile : {}) }}>
         <div style={styles.timerLeft}>
-          <span style={{ ...styles.testTitleSmall, ...(isMobile ? { display: "none" } : {}) }}>{test.title}</span>
+          <span style={{ ...styles.testTitleSmall, ...(isMobile ? { display: "none" } : {}) }}>{shuffledTest.title}</span>
           {isMobile && (
             <button style={styles.qNavToggleBtn} onClick={() => setShowQNav(s => !s)}>
               ☰ {answered}/{totalQ}
@@ -303,7 +460,17 @@ function TestInterface({ test, onFinish, onBack }) {
           {isMobile ? (
             <button style={styles.submitTopBtn} onClick={handleSubmit}>Submit</button>
           ) : (
-            <span style={styles.timerProgress}>{answered}/{totalQ} answered</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {tabWarnings > 0 && (
+                <span style={styles.warningChip}>⚠ {tabWarnings} switch{tabWarnings !== 1 ? "es" : ""}</span>
+              )}
+              {!isMobile && (
+                <span style={{ ...styles.fsIndicator, color: isFullscreen ? "#4ade80" : "#f87171" }}>
+                  {isFullscreen ? "⛶ Fullscreen" : "⚠ Not Fullscreen"}
+                </span>
+              )}
+              <span style={styles.timerProgress}>{answered}/{totalQ} answered</span>
+            </div>
           )}
         </div>
       </div>
@@ -325,7 +492,7 @@ function TestInterface({ test, onFinish, onBack }) {
             <button style={styles.closeDrawerBtn} onClick={() => setShowQNav(false)}>✕</button>
           </div>
           <div style={styles.qGrid}>
-            {test.questions.map((_, i) => {
+            {shuffledTest.questions.map((_, i) => {
               const isAnswered = answers[i] !== undefined && answers[i] !== null;
               const isCurrent = i === current;
               const isFlagged = flagged.has(i);
@@ -359,7 +526,7 @@ function TestInterface({ test, onFinish, onBack }) {
           <div style={styles.sidebar}>
             <p style={styles.sidebarLabel}>Questions</p>
             <div style={styles.qGrid}>
-              {test.questions.map((_, i) => {
+              {shuffledTest.questions.map((_, i) => {
                 const isAnswered = answers[i] !== undefined && answers[i] !== null;
                 const isCurrent = i === current;
                 const isFlagged = flagged.has(i);
@@ -937,4 +1104,49 @@ const styles = {
   summaryStatsMobile: { gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" },
   statBoxMobile: { padding: "12px" },
   reviewOptMobile: { flexWrap: "wrap", gap: "8px" },
+
+  // ─── ANTI-CHEAT ─────────────────────────────────────────────────────────────
+  warningOverlay: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 9999, backdropFilter: "blur(6px)"
+  },
+  warningBox: {
+    background: "#0d1424", border: "2px solid #f87171",
+    borderRadius: "16px", padding: "48px 40px", maxWidth: "420px",
+    textAlign: "center", display: "flex", flexDirection: "column",
+    alignItems: "center", gap: "16px", boxShadow: "0 0 60px #f8717140"
+  },
+  warningIcon: { fontSize: "48px" },
+  warningTitle: { fontSize: "22px", fontWeight: "800", color: "#f87171", margin: 0 },
+  warningDesc: { fontSize: "14px", color: "#94a3b8", lineHeight: 1.6, margin: 0 },
+  warningBtn: {
+    marginTop: "8px", padding: "12px 32px",
+    background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "14px"
+  },
+  tabAlertBanner: {
+    background: "#facc1515", borderBottom: "1px solid #facc1540",
+    color: "#facc15", padding: "10px 20px", fontSize: "13px",
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    fontFamily: "inherit"
+  },
+  tabAlertClose: {
+    background: "transparent", border: "none", color: "#facc15",
+    cursor: "pointer", fontSize: "14px", padding: "2px 6px", fontFamily: "inherit"
+  },
+  copyBanner: {
+    position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)",
+    background: "#f8717120", border: "1px solid #f87171", borderRadius: "8px",
+    color: "#f87171", padding: "10px 20px", fontSize: "13px",
+    zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
+  },
+  warningChip: {
+    fontSize: "12px", color: "#facc15", background: "#facc1515",
+    border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
+  },
+  fsIndicator: {
+    fontSize: "12px", fontFamily: "inherit"
+  },
 };
