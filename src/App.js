@@ -3,6 +3,17 @@ import CNSQuiz1 from "./quiz/CNSQuiz1";
 import BloodQuiz1 from "./quiz/BloodQuiz1";
 import './App.css';
 
+// ─── Responsive Hook ─────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return isMobile;
+}
+
 // ─── Sample Data ────────────────────────────────────────────────────────────
 const SAMPLE_TESTS = [
   CNSQuiz1,
@@ -43,6 +54,7 @@ const JSON_TEMPLATE = `{
 
 // ─── Navigation ──────────────────────────────────────────────────────────────
 function Nav({ page, setPage, testsCount }) {
+  const isMobile = useIsMobile();
   return (
     <nav style={styles.nav}>
       <div style={styles.navBrand} onClick={() => setPage("dashboard")}>
@@ -51,17 +63,17 @@ function Nav({ page, setPage, testsCount }) {
       </div>
       <div style={styles.navLinks}>
         <button
-          style={{ ...styles.navBtn, ...(page === "dashboard" ? styles.navBtnActive : {}) }}
+          style={{ ...styles.navBtn, ...(page === "dashboard" ? styles.navBtnActive : {}), ...(isMobile ? styles.navBtnMobile : {}) }}
           onClick={() => setPage("dashboard")}
         >
-          Dashboard
-          <span style={styles.navBadge}>{testsCount}</span>
+          {isMobile ? "🏠" : "Dashboard"}
+          {!isMobile && <span style={styles.navBadge}>{testsCount}</span>}
         </button>
         <button
-          style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}) }}
+          style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? styles.navBtnMobile : {}) }}
           onClick={() => setPage("create")}
         >
-          + New Test
+          {isMobile ? "+" : "+ New Test"}
         </button>
       </div>
     </nav>
@@ -128,6 +140,8 @@ function CreateTest({ onCreate }) {
   const [json, setJson] = useState(JSON_TEMPLATE);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [showSchema, setShowSchema] = useState(false);
+  const isMobile = useIsMobile();
 
   function handleSubmit() {
     setError("");
@@ -164,52 +178,69 @@ function CreateTest({ onCreate }) {
 
   return (
     <div style={styles.page}>
-      <h1 style={styles.dashTitle}>Create New Test</h1>
+      <h1 style={{ ...styles.dashTitle, ...(isMobile ? { fontSize: "22px" } : {}) }}>Create New Test</h1>
       <p style={styles.dashSub}>Paste your test JSON below — follow the template structure</p>
 
-      <div style={styles.createLayout}>
+      <div style={{ ...styles.createLayout, ...(isMobile ? styles.createLayoutMobile : {}) }}>
         <div style={styles.editorPanel}>
           <div style={styles.editorHeader}>
             <span style={styles.editorLabel}>JSON Input</span>
-            <button style={styles.resetBtn} onClick={() => setJson(JSON_TEMPLATE)}>Reset Template</button>
+            <div style={{ display: "flex", gap: "8px" }}>
+              {isMobile && (
+                <button style={styles.resetBtn} onClick={() => setShowSchema(s => !s)}>
+                  {showSchema ? "Hide Schema" : "View Schema"}
+                </button>
+              )}
+              <button style={styles.resetBtn} onClick={() => setJson(JSON_TEMPLATE)}>Reset</button>
+            </div>
           </div>
+          {isMobile && showSchema && (
+            <SchemaReference />
+          )}
           <textarea
-            style={styles.textarea}
+            style={{ ...styles.textarea, ...(isMobile ? { minHeight: "320px", fontSize: "12px", padding: "14px" } : {}) }}
             value={json}
             onChange={e => setJson(e.target.value)}
             spellCheck={false}
           />
           {error && <div style={styles.errorBox}>⚠ {error}</div>}
           {success && <div style={styles.successBox}>✓ Test created successfully!</div>}
-          <button style={styles.createBtn} onClick={handleSubmit}>
+          <button style={{ ...styles.createBtn, ...(isMobile ? { width: "100%" } : {}) }} onClick={handleSubmit}>
             Create Test ↗
           </button>
         </div>
 
-        <div style={styles.schemaPanel}>
-          <h3 style={styles.schemaTitle}>Schema Reference</h3>
-          {[
-            { field: "title", type: "string", req: true, desc: "Name of the test" },
-            { field: "subject", type: "string", req: false, desc: "Subject/category label" },
-            { field: "duration", type: "number", req: true, desc: "Time limit in seconds" },
-            { field: "difficulty", type: "string", req: false, desc: "Easy | Medium | Hard" },
-            { field: "questions", type: "array", req: true, desc: "Array of question objects" },
-            { field: "questions[].question", type: "string", req: true, desc: "Question text" },
-            { field: "questions[].options", type: "string[]", req: true, desc: "Answer choices (min 2)" },
-            { field: "questions[].answer", type: "string", req: true, desc: "Correct option (exact match)" },
-            { field: "questions[].explanation", type: "string", req: false, desc: "Why this answer is correct" }
-          ].map(row => (
-            <div key={row.field} style={styles.schemaRow}>
-              <div style={styles.schemaField}>
-                <code style={styles.fieldCode}>{row.field}</code>
-                {row.req && <span style={styles.reqBadge}>required</span>}
-              </div>
-              <span style={styles.schemaType}>{row.type}</span>
-              <span style={styles.schemaDesc}>{row.desc}</span>
-            </div>
-          ))}
-        </div>
+        {!isMobile && <SchemaReference />}
       </div>
+    </div>
+  );
+}
+
+// ─── Schema Reference (shared) ───────────────────────────────────────────────
+function SchemaReference() {
+  return (
+    <div style={styles.schemaPanel}>
+      <h3 style={styles.schemaTitle}>Schema Reference</h3>
+      {[
+        { field: "title", type: "string", req: true, desc: "Name of the test" },
+        { field: "subject", type: "string", req: false, desc: "Subject/category label" },
+        { field: "duration", type: "number", req: true, desc: "Time limit in seconds" },
+        { field: "difficulty", type: "string", req: false, desc: "Easy | Medium | Hard" },
+        { field: "questions", type: "array", req: true, desc: "Array of question objects" },
+        { field: "questions[].question", type: "string", req: true, desc: "Question text" },
+        { field: "questions[].options", type: "string[]", req: true, desc: "Answer choices (min 2)" },
+        { field: "questions[].answer", type: "string", req: true, desc: "Correct option (exact match)" },
+        { field: "questions[].explanation", type: "string", req: false, desc: "Why this answer is correct" }
+      ].map(row => (
+        <div key={row.field} style={styles.schemaRow}>
+          <div style={styles.schemaField}>
+            <code style={styles.fieldCode}>{row.field}</code>
+            {row.req && <span style={styles.reqBadge}>required</span>}
+          </div>
+          <span style={styles.schemaType}>{row.type}</span>
+          <span style={styles.schemaDesc}>{row.desc}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -221,6 +252,8 @@ function TestInterface({ test, onFinish, onBack }) {
   const [timeLeft, setTimeLeft] = useState(test.duration);
   const [submitted, setSubmitted] = useState(false);
   const [flagged, setFlagged] = useState(new Set());
+  const [showQNav, setShowQNav] = useState(false);
+  const isMobile = useIsMobile();
 
   const handleSubmit = useCallback(() => setSubmitted(true), []);
 
@@ -253,16 +286,25 @@ function TestInterface({ test, onFinish, onBack }) {
   return (
     <div style={styles.testWrap}>
       {/* Timer Bar */}
-      <div style={styles.timerBar}>
+      <div style={{ ...styles.timerBar, ...(isMobile ? styles.timerBarMobile : {}) }}>
         <div style={styles.timerLeft}>
-          <span style={styles.testTitleSmall}>{test.title}</span>
+          <span style={{ ...styles.testTitleSmall, ...(isMobile ? { display: "none" } : {}) }}>{test.title}</span>
+          {isMobile && (
+            <button style={styles.qNavToggleBtn} onClick={() => setShowQNav(s => !s)}>
+              ☰ {answered}/{totalQ}
+            </button>
+          )}
         </div>
-        <div style={{ ...styles.timerDisplay, ...(timerDanger ? styles.timerDanger : {}) }}>
+        <div style={{ ...styles.timerDisplay, ...(timerDanger ? styles.timerDanger : {}), ...(isMobile ? styles.timerDisplayMobile : {}) }}>
           <span style={styles.timerIcon}>⏱</span>
-          <span style={styles.timerText}>{formatTime(timeLeft)}</span>
+          <span style={{ ...styles.timerText, ...(isMobile ? { fontSize: "16px" } : {}) }}>{formatTime(timeLeft)}</span>
         </div>
         <div style={styles.timerRight}>
-          <span style={styles.timerProgress}>{answered}/{totalQ} answered</span>
+          {isMobile ? (
+            <button style={styles.submitTopBtn} onClick={handleSubmit}>Submit</button>
+          ) : (
+            <span style={styles.timerProgress}>{answered}/{totalQ} answered</span>
+          )}
         </div>
       </div>
 
@@ -275,13 +317,16 @@ function TestInterface({ test, onFinish, onBack }) {
         }} />
       </div>
 
-      <div style={styles.testBody}>
-        {/* Question Nav Sidebar */}
-        <div style={styles.sidebar}>
-          <p style={styles.sidebarLabel}>Questions</p>
+      {/* Mobile: Q Nav Drawer */}
+      {isMobile && showQNav && (
+        <div style={styles.mobileQNav}>
+          <div style={styles.mobileQNavHeader}>
+            <span style={styles.sidebarLabel}>Questions</span>
+            <button style={styles.closeDrawerBtn} onClick={() => setShowQNav(false)}>✕</button>
+          </div>
           <div style={styles.qGrid}>
             {test.questions.map((_, i) => {
-              const isAnswered = answers[i] !== undefined;
+              const isAnswered = answers[i] !== undefined && answers[i] !== null;
               const isCurrent = i === current;
               const isFlagged = flagged.has(i);
               return (
@@ -293,7 +338,7 @@ function TestInterface({ test, onFinish, onBack }) {
                     ...(isAnswered && !isCurrent ? styles.qDotAnswered : {}),
                     ...(isFlagged ? styles.qDotFlagged : {})
                   }}
-                  onClick={() => setCurrent(i)}
+                  onClick={() => { setCurrent(i); setShowQNav(false); }}
                 >
                   {i + 1}
                 </button>
@@ -305,13 +350,48 @@ function TestInterface({ test, onFinish, onBack }) {
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#4ade80" }} /> Answered</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#facc15" }} /> Flagged</span>
           </div>
-          <button style={styles.submitSideBtn} onClick={handleSubmit}>
-            Submit Test
-          </button>
         </div>
+      )}
+
+      <div style={{ ...styles.testBody, ...(isMobile ? { flexDirection: "column" } : {}) }}>
+        {/* Desktop Sidebar */}
+        {!isMobile && (
+          <div style={styles.sidebar}>
+            <p style={styles.sidebarLabel}>Questions</p>
+            <div style={styles.qGrid}>
+              {test.questions.map((_, i) => {
+                const isAnswered = answers[i] !== undefined && answers[i] !== null;
+                const isCurrent = i === current;
+                const isFlagged = flagged.has(i);
+                return (
+                  <button
+                    key={i}
+                    style={{
+                      ...styles.qDot,
+                      ...(isCurrent ? styles.qDotCurrent : {}),
+                      ...(isAnswered && !isCurrent ? styles.qDotAnswered : {}),
+                      ...(isFlagged ? styles.qDotFlagged : {})
+                    }}
+                    onClick={() => setCurrent(i)}
+                  >
+                    {i + 1}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={styles.sidebarLegend}>
+              <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#6366f1" }} /> Current</span>
+              <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#4ade80" }} /> Answered</span>
+              <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#facc15" }} /> Flagged</span>
+            </div>
+            <button style={styles.submitSideBtn} onClick={handleSubmit}>
+              Submit Test
+            </button>
+          </div>
+        )}
 
         {/* Question Area */}
-        <div style={styles.questionArea}>
+        <div style={{ ...styles.questionArea, ...(isMobile ? styles.questionAreaMobile : {}) }}>
           <div style={styles.questionMeta}>
             <span style={styles.questionNum}>Question {current + 1} of {totalQ}</span>
             <button
@@ -324,11 +404,12 @@ function TestInterface({ test, onFinish, onBack }) {
                 });
               }}
             >
-              {flagged.has(current) ? "🚩 Flagged" : "⚐ Flag"}
+              {flagged.has(current) ? "🚩" : "⚐"}
+              {!isMobile && (flagged.has(current) ? " Flagged" : " Flag")}
             </button>
           </div>
 
-          <h2 style={styles.questionText}>{q.question}</h2>
+          <h2 style={{ ...styles.questionText, ...(isMobile ? styles.questionTextMobile : {}) }}>{q.question}</h2>
 
           <div style={styles.optionsList}>
             {q.options.map((opt, oi) => {
@@ -336,31 +417,32 @@ function TestInterface({ test, onFinish, onBack }) {
               return (
                 <button
                   key={oi}
-                  style={{ ...styles.optionBtn, ...(selected ? styles.optionBtnSelected : {}) }}
-                  onClick={() =>setAnswers(prev => ({...prev, [current]: prev[current] === opt ? null : opt}))}
+                  style={{ ...styles.optionBtn, ...(selected ? styles.optionBtnSelected : {}), ...(isMobile ? styles.optionBtnMobile : {}) }}
+                  onClick={() => setAnswers(prev => ({ ...prev, [current]: prev[current] === opt ? null : opt }))}
                 >
                   <span style={{ ...styles.optionLabel, ...(selected ? styles.optionLabelSelected : {}) }}>
                     {String.fromCharCode(65 + oi)}
                   </span>
-                  <span style={styles.optionText}>{opt}</span>
+                  <span style={{ ...styles.optionText, ...(isMobile ? { fontSize: "14px" } : {}) }}>{opt}</span>
                 </button>
               );
             })}
           </div>
 
-          <div style={styles.navBtns}>
+          <div style={{ ...styles.navBtns, ...(isMobile ? styles.navBtnsMobile : {}) }}>
             <button
-              style={{ ...styles.navTestBtn, ...(current === 0 ? styles.navTestBtnDisabled : {}) }}
+              style={{ ...styles.navTestBtn, ...(current === 0 ? styles.navTestBtnDisabled : {}), ...(isMobile ? { flex: 1 } : {}) }}
               onClick={() => setCurrent(p => Math.max(0, p - 1))}
               disabled={current === 0}
             >
-              ← Previous
+              ← Prev
             </button>
 
             <button
               style={{
                 ...styles.navTestBtnPrimary,
-                ...(current === totalQ - 1 ? styles.navTestBtnDisabled : {})
+                ...(current === totalQ - 1 ? styles.navTestBtnDisabled : {}),
+                ...(isMobile ? { flex: 1 } : {})
               }}
               onClick={() => setCurrent(p => Math.min(totalQ - 1, p + 1))}
               disabled={current === totalQ - 1}
@@ -368,6 +450,13 @@ function TestInterface({ test, onFinish, onBack }) {
               Next →
             </button>
           </div>
+
+          {/* Mobile Submit */}
+          {/* {isMobile && (
+            <button style={{ ...styles.submitSideBtn, marginTop: "12px", width: "100%" }} onClick={handleSubmit}>
+              Submit Test
+            </button>
+          )} */}
         </div>
       </div>
     </div>
@@ -377,6 +466,7 @@ function TestInterface({ test, onFinish, onBack }) {
 // ─── Results ──────────────────────────────────────────────────────────────────
 function Results({ test, answers, timeTaken, onBack }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
+  const isMobile = useIsMobile();
 
   let correctquetions = 0;
   let wrongquestions = 0;
@@ -409,10 +499,10 @@ function Results({ test, answers, timeTaken, onBack }) {
   const passed = pct >= 60;
 
   return (
-    <div style={styles.resultsWrap}>
-      <div style={styles.resultsSummary}>
+    <div style={{ ...styles.resultsWrap, ...(isMobile ? styles.resultsWrapMobile : {}) }}>
+      <div style={{ ...styles.resultsSummary, ...(isMobile ? styles.resultsSummaryMobile : {}) }}>
         <div style={styles.scoreCircleWrap}>
-          <svg width="140" height="140" viewBox="0 0 140 140">
+          <svg width={isMobile ? "100" : "140"} height={isMobile ? "100" : "140"} viewBox="0 0 140 140">
             <circle cx="70" cy="70" r="58" fill="none" stroke="#1e293b" strokeWidth="10" />
             <circle
               cx="70" cy="70" r="58"
@@ -427,22 +517,20 @@ function Results({ test, answers, timeTaken, onBack }) {
             />
           </svg>
           <div style={styles.scoreInner}>
-            <span style={{ ...styles.scoreNum, color: passed ? "#4ade80" : "#f87171" }}>{score}/{total}</span>
-          {/**  <span style={styles.scoreLabel}>{score}/{total}</span> */}
+            <span style={{ ...styles.scoreNum, color: passed ? "#4ade80" : "#f87171", ...(isMobile ? { fontSize: "20px" } : {}) }}>{score}/{total}</span>
           </div>
         </div>
 
         <div style={styles.summaryInfo}>
-          <h1 style={styles.resultsTitle}>{passed ? "Well done! 🎉" : "Keep practicing 💪"}</h1>
+          <h1 style={{ ...styles.resultsTitle, ...(isMobile ? { fontSize: "20px" } : {}) }}>{passed ? "Well done! 🎉" : "Keep practicing 💪"}</h1>
           <p style={styles.resultsSub}>{test.title}</p>
-          <div style={styles.summaryStats}>
-            <StatBox label="Correct" value={correctquetions} color="#4ade80" />
-            <StatBox label="Incorrect" value={wrongquestions} color="#f87171" />
-            <StatBox label="Unanswered" value={unansweredquestions} color="#c9d0ccff" />
-            <StatBox label="Time Taken" value={formatTime(timeTaken)} color="#6366f1" />
-            {/** <StatBox label="Score" value={`${pct}%`} color={passed ? "#4ade80" : "#f87171"} /> */}
+          <div style={{ ...styles.summaryStats, ...(isMobile ? styles.summaryStatsMobile : {}) }}>
+            <StatBox label="Correct" value={correctquetions} color="#4ade80" isMobile={isMobile} />
+            <StatBox label="Incorrect" value={wrongquestions} color="#f87171" isMobile={isMobile} />
+            <StatBox label="Unanswered" value={unansweredquestions} color="#c9d0ccff" isMobile={isMobile} />
+            <StatBox label="Time Taken" value={formatTime(timeTaken)} color="#6366f1" isMobile={isMobile} />
           </div>
-          <button style={styles.backBtn} onClick={onBack}>← Back to Dashboard</button>
+          <button style={{ ...styles.backBtn, ...(isMobile ? { width: "100%" } : {}) }} onClick={onBack}>← Back to Dashboard</button>
         </div>
       </div>
 
@@ -460,7 +548,7 @@ function Results({ test, answers, timeTaken, onBack }) {
                     {correct ? "✓" : "✗"}
                   </span>
                   <span style={styles.reviewQNum}>Q{i + 1}</span>
-                  <span style={styles.reviewQText}>{q.question}</span>
+                  <span style={{ ...styles.reviewQText, ...(isMobile ? { fontSize: "13px" } : {}) }}>{q.question}</span>
                 </div>
                 <span style={styles.reviewExpand}>{expanded ? "▲" : "▼"}</span>
               </div>
@@ -474,13 +562,14 @@ function Results({ test, answers, timeTaken, onBack }) {
                       return (
                         <div key={oi} style={{
                           ...styles.reviewOpt,
+                          ...(isMobile ? styles.reviewOptMobile : {}),
                           background: isCorrect ? "#4ade8018" : isUser && !correct ? "#f8717118" : "transparent",
                           borderColor: isCorrect ? "#4ade80" : isUser && !correct ? "#f87171" : "#334155"
                         }}>
                           <span style={styles.reviewOptLabel}>{String.fromCharCode(65 + oi)}</span>
-                          <span>{opt}</span>
-                          {isCorrect && <span style={styles.correctTag}>✓ Correct</span>}
-                          {isUser && !correct && <span style={styles.wrongTag}>✗ Your answer</span>}
+                          <span style={{ flex: 1 }}>{opt}</span>
+                          {isCorrect && <span style={{ ...styles.correctTag, flexShrink: 0 }}>✓</span>}
+                          {isUser && !correct && <span style={{ ...styles.wrongTag, flexShrink: 0 }}>✗</span>}
                         </div>
                       );
                     })}
@@ -501,11 +590,11 @@ function Results({ test, answers, timeTaken, onBack }) {
   );
 }
 
-function StatBox({ label, value, color }) {
+function StatBox({ label, value, color, isMobile }) {
   return (
-    <div style={styles.statBox}>
-      <span style={{ ...styles.statValue, color }}>{value}</span>
-      <span style={styles.statLabel}>{label}</span>
+    <div style={{ ...styles.statBox, ...(isMobile ? styles.statBoxMobile : {}) }}>
+      <span style={{ ...styles.statValue, color, ...(isMobile ? { fontSize: "16px" } : {}) }}>{value}</span>
+      <span style={{ ...styles.statLabel, ...(isMobile ? { fontSize: "10px" } : {}) }}>{label}</span>
     </div>
   );
 }
@@ -572,7 +661,7 @@ const styles = {
   // NAV
   nav: {
     display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "0 32px", height: "64px",
+    padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
     background: "#0d1424", borderBottom: "1px solid #1e293b",
     position: "sticky", top: 0, zIndex: 100
   },
@@ -596,13 +685,13 @@ const styles = {
     padding: "1px 8px", fontSize: "11px", fontWeight: "bold"
   },
   // MAIN
-  main: { maxWidth: "1200px", margin: "0 auto", padding: "40px 32px" },
+  main: { maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" },
   page: {},
   // DASHBOARD
   dashHeader: { marginBottom: "32px" },
-  dashTitle: { fontSize: "32px", fontWeight: "700", color: "#f1f5f9", margin: 0, letterSpacing: "-0.5px" },
+  dashTitle: { fontSize: "clamp(22px, 5vw, 32px)", fontWeight: "700", color: "#f1f5f9", margin: 0, letterSpacing: "-0.5px" },
   dashSub: { color: "#64748b", marginTop: "6px", fontSize: "14px" },
-  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "20px" },
+  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: "16px" },
   card: {
     background: "#0d1424", border: "1px solid #1e293b", borderRadius: "12px",
     padding: "24px", transition: "all 0.2s", cursor: "default"
@@ -813,5 +902,39 @@ const styles = {
     borderRadius: "8px", padding: "16px"
   },
   explanationLabel: { fontSize: "12px", fontWeight: "700", color: "#6366f1", letterSpacing: "1px", display: "block", marginBottom: "8px" },
-  explanationText: { fontSize: "13px", color: "#94a3b8", lineHeight: 1.7, margin: 0 }
+  explanationText: { fontSize: "13px", color: "#94a3b8", lineHeight: 1.7, margin: 0 },
+
+  // ─── MOBILE / RESPONSIVE ────────────────────────────────────────────────────
+  navBtnMobile: { padding: "8px 14px", fontSize: "16px" },
+  createLayoutMobile: { gridTemplateColumns: "1fr" },
+  timerBarMobile: { padding: "10px 16px" },
+  timerDisplayMobile: { padding: "6px 14px" },
+  questionAreaMobile: { padding: "20px 16px 160px 16px", maxWidth: "100%" },
+  questionTextMobile: { fontSize: "17px", marginBottom: "20px" },
+  optionBtnMobile: { padding: "14px 14px", gap: "12px" },
+  navBtnsMobile: { position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px", background: "#0a0f1e", borderTop: "1px solid #1e293b", zIndex: 50 },
+  qNavToggleBtn: {
+    padding: "6px 12px", background: "#1e293b", border: "1px solid #334155",
+    color: "#94a3b8", borderRadius: "6px", cursor: "pointer", fontSize: "13px",
+    fontFamily: "inherit"
+  },
+  submitTopBtn: {
+    padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
+  },
+  mobileQNav: {
+    background: "#0d1424", borderBottom: "1px solid #334155",
+    padding: "16px", display: "flex", flexDirection: "column", gap: "12px"
+  },
+  mobileQNavHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  closeDrawerBtn: {
+    background: "transparent", border: "none", color: "#94a3b8",
+    fontSize: "16px", cursor: "pointer", padding: "4px 8px"
+  },
+  resultsWrapMobile: { padding: "16px" },
+  resultsSummaryMobile: { flexDirection: "column", gap: "20px", padding: "24px", alignItems: "center", textAlign: "center" },
+  summaryStatsMobile: { gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" },
+  statBoxMobile: { padding: "12px" },
+  reviewOptMobile: { flexWrap: "wrap", gap: "8px" },
 };
