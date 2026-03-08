@@ -146,7 +146,7 @@ function TestCard({ test, onStart, onDelete }) {
     >
       <div style={styles.cardTop}>
         <span style={styles.cardSubject}>{test.subject}</span>
-        <span style={styles.cardSubject}>{test.topic}</span>
+        {/* <span style={styles.cardSubject}>{test.topic}</span> */}
       </div>
       <h2 style={styles.cardTitle}>{test.title}</h2>
       <div style={styles.cardMeta}>
@@ -193,7 +193,22 @@ function CreateTest({ onCreate }) {
         if (!Array.isArray(q.options) || q.options.length < 2)
           throw new Error(`Question ${i + 1}: 'options' must have at least 2 items`);
         if (!q.answer) throw new Error(`Question ${i + 1}: missing 'answer'`);
+        if (!q.options.includes(q.answer))
+          throw new Error(`Question ${i + 1}: 'answer' must exactly match one of the options`);
       });
+
+      // Detect truly duplicate questions within this JSON before hitting the DB.
+      // Two questions are duplicates only if question + options + answer all match.
+      // Same question text with different options (e.g. "Which is correct?") is fine.
+      const fingerprints = new Set();
+      data.questions.forEach((q, i) => {
+        const fp = `${q.question.trim()}__${q.answer.trim()}`;
+        if (fingerprints.has(fp)) {
+          throw new Error(`Question ${i + 1} is a duplicate of an earlier question in this JSON (same question and answer).`);
+        }
+        fingerprints.add(fp);
+      });
+      
     } catch (e) {
       setError(e.message);
       return;

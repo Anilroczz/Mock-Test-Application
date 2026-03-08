@@ -18,8 +18,13 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 //   options     text[] not null,
 //   answer      text not null,
 //   explanation text,
-//   topic     text
+//   topic     text,
+//   fingerprint text not null,        -- question + answer (identity key)
 // );
+//
+// -- REQUIRED: unique index on fingerprint for deduplication
+// -- Two questions are identical if question text + answer both match
+// create unique index on questions(fingerprint);
 //
 // -- QUIZZES TABLE
 // create table quizzes (
@@ -47,43 +52,99 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // create index on questions_quizzes(quiz_id);
 // create index on questions_quizzes(question_id);
 //
+// -- Optional: add this index to speed up duplicate-question lookups at scale
+// -- create index on questions(question);
+//
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Upsert a single question by its text content.
- * If an identical question already exists in the bank, reuse its id.
- * Returns the question row.
+ * True DB upsert on the `question` text column.
+ * Requires a unique index on questions(question) — see schema note below.
+ * On conflict (same question text), updates options/answer/explanation so
+ * the bank stays fresh, and always returns the canonical row id.
  */
 async function upsertQuestion({ question, options, answer, explanation, topic }) {
-  // Try to find an existing question with the same text (deduplicate the bank)
+  const { data, error } = await supabase
+    .from("questions")
+    .upsert(
+      { question, options, answer, explanation: explanation || null, topic: topic || null },
+      { onConflict: "question", ignoreDuplicates: false }   // update existing row in place
+    )
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * A question's identity is: question text + answer.
+ * "Which of the following is correct?" with a different answer = different question.
+ * "Which of the following is correct?" with the same answer = same question (deduplicated).
+ */
+function questionFingerprint({ question, answer }) {
+  return `${question.trim()}__${answer.trim()}`;
+}
+
+/**
+ * Find-or-create a question by its text content.
+ * Works without any unique index on the questions table.
+ * Uses select-first to find an existing row, inserts only if missing.
+ * Returns the question id.
+ */
+async function findOrCreateQuestion({ question, options, answer, explanation, topic }) {
+  const fingerprint = questionFingerprint({ question, answer });
+  
+  // 1. Look for an existing question with the same text
   const { data: existing, error: findErr } = await supabase
     .from("questions")
     .select("id")
-    .eq("question", question)
+    .eq("fingerprint", fingerprint)
     .maybeSingle();
 
   if (findErr) throw findErr;
+  if (existing) return existing.id;
 
-  if (existing) return existing;
-
-  // Insert new question
+  // 2. Not found — insert as a new question
   const { data: inserted, error: insertErr } = await supabase
     .from("questions")
-    .insert({ question, options, answer, explanation: explanation || null, topic: topic || null })
+    .insert({
+      question,
+      options,
+      answer,
+      explanation: explanation || null,
+      topic: topic || null,
+      fingerprint,                    // store for future lookups
+    })
     .select("id")
     .single();
 
   if (insertErr) throw insertErr;
-  return inserted;
+  return inserted.id;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Save a full quiz (parsed from JSON) into the three tables.
- * Returns the newly created quiz row (with id).
+ * Save a full quiz into the three tables.
+ *
+ * Question bank deduplication rules:
+ *  - Same question text in DIFFERENT quizzes → shared row in questions table,
+ *    each quiz gets its own row in questions_quizzes pointing to the same question_id.
+ *    This is the whole point of the bank — reuse without duplication.
+ *
+ *  - Same question text appearing TWICE in the SAME quiz JSON → only one
+ *    questions_quizzes row is created (the duplicate is silently dropped).
+ *    A question can only appear once per quiz.
+ *
+ * Flow:
+ *   1. Insert quiz row → quizzes
+ *   2. Find-or-create each question → questions
+ *   3. Deduplicate collected ids, insert join rows → questions_quizzes
  */
 export async function saveQuiz(data) {
   // 1. Insert quiz metadata → quizzes table
@@ -104,33 +165,60 @@ export async function saveQuiz(data) {
 
   if (quizErr) throw quizErr;
 
-  // 2. Upsert each question → questions table (deduplicates automatically)
-  const questionIds = [];
-  for (const q of data.questions) {
-    const row = await upsertQuestion({
-      question: q.question,
-      options: q.options,
-      answer: q.answer,
-      explanation: q.explanation,
-      topic: data.topic || null,
+  try {
+
+    // ── Step 2: find-or-create every question ───────────────────────────────────
+    // For each question text:
+    //   • Already in the bank (any quiz) → reuse its existing id
+    //   • New question → insert and get new id
+    // This means two quizzes CAN share the same question_id — that is correct.
+    const questionIds = [];
+    for (const q of data.questions) {
+      const id = await findOrCreateQuestion({
+        question: q.question,
+        options: q.options,
+        answer: q.answer,
+        explanation: q.explanation,
+        topic: data.topic || null,
+        fingerprint: q.fingerprint
+      });
+      questionIds.push(id);
+    }
+
+    // ── Step 3: build join rows, skip intra-quiz duplicates ─────────────────────
+    // The unique(quiz_id, question_id) constraint means a question can appear
+    // at most once per quiz. If the same question text appeared twice in the
+    // submitted JSON they would resolve to the same question_id — we keep only
+    // the first occurrence (earliest position).
+    const seen = new Set();
+    const joinRows = [];
+    questionIds.forEach((question_id, idx) => {
+      if (!seen.has(question_id)) {
+        seen.add(question_id);
+        joinRows.push({ quiz_id: quiz.id, question_id, position: idx + 1 });
+      }
     });
-    questionIds.push(row.id);
+
+    // ── Step 4: insert join rows ─────────────────────────────────────────────────
+    // Plain insert is safe here because:
+    //  a) We just created this quiz_id seconds ago — no prior rows can exist for it.
+    //  b) We already deduped question_ids above with the Set.
+    // So no conflict is possible. If somehow one occurs (retry scenario), the
+    // error is descriptive enough to debug.
+    const { error: joinErr } = await supabase
+      .from("questions_quizzes")
+      .insert(joinRows);
+
+    if (joinErr) throw joinErr;
+
+    return quiz;
+
+  } catch (err) {
+    // ── Rollback: delete the quiz we just created so retries are clean ────────
+    await supabase.from("quizzes").delete().eq("id", quiz.id);
+    throw err;
   }
 
-  // 3. Insert join rows → questions_quizzes table
-  const joinRows = questionIds.map((question_id, idx) => ({
-    quiz_id: quiz.id,
-    question_id,
-    position: idx + 1,
-  }));
-
-  const { error: joinErr } = await supabase
-    .from("questions_quizzes")
-    .insert(joinRows);
-
-  if (joinErr) throw joinErr;
-
-  return quiz;
 }
 
 /**
@@ -195,7 +283,8 @@ export async function fetchQuizWithQuestions(quizId) {
     options: row.questions.options,
     answer: row.questions.answer,
     explanation: row.questions.explanation,
-    topic: row.questions.topic
+    topic: row.questions.topic,
+    fingerprint: row.questions.fingerprint
   }));
 
   return {
