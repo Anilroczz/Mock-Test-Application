@@ -1,7 +1,6 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-/src/quiz/json
-/src/quiz/utility
+/src/json
 
 # dependencies
 /node_modules

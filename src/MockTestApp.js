@@ -1,6 +1,28 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import "./App.css";
-import { saveQuiz, fetchQuizzes, fetchQuizWithQuestions, deleteQuiz } from "./quiz/supabase";
+import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from "react";
+import "./MockTestApp.css";
+import { saveQuiz, fetchQuizzes, fetchQuizWithQuestions, deleteQuiz } from "./supabase";
+
+// Theme Context
+const ThemeContext = createContext();
+function useTheme() { return useContext(ThemeContext); }
+
+// Color Tokens
+const TOKENS = {
+  dark: {
+    bg: "#0a0f1e", bgCard: "#0d1424", bgDeep: "#060c1a",
+    bgHover: "#1e293b",
+    border: "#1e293b", borderMid: "#334155",
+    text1: "#f1f5f9", text2: "#e2e8f0", text3: "#94a3b8", text4: "#64748b",
+    code: "#a5f3fc",
+  },
+  light: {
+    bg: "#f1f5f9", bgCard: "#ffffff", bgDeep: "#e8edf5",
+    bgHover: "#e2e8f0",
+    border: "#e2e8f0", borderMid: "#cbd5e1",
+    text1: "#0f172a", text2: "#1e293b", text3: "#475569", text4: "#64748b",
+    code: "#4338ca",
+  },
+};
 
 // ─── Responsive Hook ─────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -62,6 +84,8 @@ const JSON_TEMPLATE = `{
 
 // ─── Navigation ──────────────────────────────────────────────────────────────
 function Nav({ page, setPage, testsCount }) {
+  const { t, isDark, toggle } = useTheme();
+  const styles = getStyles(t);
   const isMobile = useIsMobile();
   return (
     <nav style={styles.nav}>
@@ -83,6 +107,25 @@ function Nav({ page, setPage, testsCount }) {
         >
           {isMobile ? "+" : "+ New Test"}
         </button>
+        <button
+          onClick={toggle}
+          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          style={{
+            background: isDark ? t.bgHover : t.bgHover,
+            border: `1px solid ${t.borderMid}`,
+            borderRadius: "8px",
+            padding: isMobile ? "8px 10px" : "6px 14px",
+            cursor: "pointer",
+            fontSize: isMobile ? "16px" : "13px",
+            color: t.text3,
+            fontFamily: "inherit",
+            display: "flex", alignItems: "center", gap: "6px",
+            transition: "all 0.2s",
+          }}
+        >
+          {isDark ? "☀️" : "🌙"}
+          {!isMobile && (isDark ? " Light" : " Dark")}
+        </button>
       </div>
     </nav>
   );
@@ -90,6 +133,8 @@ function Nav({ page, setPage, testsCount }) {
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 function Dashboard({ tests, onStart, onDelete, loading, error }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
   return (
     <div style={styles.page}>
       <div style={styles.dashHeader}>
@@ -134,6 +179,8 @@ function Dashboard({ tests, onStart, onDelete, loading, error }) {
 }
 
 function TestCard({ test, onStart, onDelete }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -163,6 +210,8 @@ function TestCard({ test, onStart, onDelete }) {
 
 // ─── Create Test ─────────────────────────────────────────────────────────────
 function CreateTest({ onCreate }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
   const [json, setJson] = useState(JSON_TEMPLATE);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -309,6 +358,8 @@ function CreateTest({ onCreate }) {
 
 // ─── Schema Reference (shared) ───────────────────────────────────────────────
 function SchemaReference() {
+  const { t } = useTheme();
+  const styles = getStyles(t);
   return (
     <div style={styles.schemaPanel}>
       <h3 style={styles.schemaTitle}>Schema Reference</h3>
@@ -339,6 +390,8 @@ function SchemaReference() {
 
 // ─── Architecture Card ────────────────────────────────────────────────────────
 // function ArchitectureCard() {
+//  const { t } = useTheme();
+// const styles = getStyles(t);
 //   return (
 //     <div style={{ ...styles.schemaPanel, gap: "10px" }}>
 //       <h3 style={styles.schemaTitle}>Question Bank Architecture</h3>
@@ -361,6 +414,8 @@ function SchemaReference() {
 
 // ─── Test Interface ───────────────────────────────────────────────────────────
 function TestInterface({ test, onFinish, onBack }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
   // Shuffle once on mount, never again
   const shuffledTest = useMemo(() => buildShuffledTest(test), [test]);
 
@@ -503,7 +558,7 @@ function TestInterface({ test, onFinish, onBack }) {
   return (
     <div
       ref={testContainerRef}
-      style={{ ...styles.testWrap, userSelect: "none", WebkitUserSelect: "none" }}
+      style={{ ...styles.testWrap}}
     >
       {/* ── Fullscreen warning overlay ── */}
       {fsWarning && !isMobile && (
@@ -727,16 +782,14 @@ function TestInterface({ test, onFinish, onBack }) {
 
 // ─── Results ──────────────────────────────────────────────────────────────────
 function Results({ test, answers, timeTaken, onBack }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
   const [expandedIdx, setExpandedIdx] = useState(null);
   const isMobile = useIsMobile();
 
   let correctquetions = 0;
   let wrongquestions = 0;
   let unansweredquestions = 0;
-
-  // const score = test.questions.reduce((acc, q, i) => {
-  //   return acc + (answers[i] === q.answer ? test.positivePoints : -test.negativePoints);
-  // }, 0);
 
   const score = test.questions.reduce((acc, q, i) => {
     // unanswered
@@ -853,6 +906,8 @@ function Results({ test, answers, timeTaken, onBack }) {
 }
 
 function StatBox({ label, value, color, isMobile }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
   return (
     <div style={{ ...styles.statBox, ...(isMobile ? styles.statBoxMobile : {}) }}>
       <span style={{ ...styles.statValue, color, ...(isMobile ? { fontSize: "16px" } : {}) }}>{value}</span>
@@ -870,6 +925,16 @@ export default function MockTestApp() {
   const [activeTest, setActiveTest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState("");
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem("examforge-theme");
+    if (saved) return saved === "dark";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+  const toggleTheme = () => setIsDark(d => {
+    localStorage.setItem("examforge-theme", !d ? "dark" : "light");
+    return !d;
+  });
+  const t = isDark ? TOKENS.dark : TOKENS.light;
 
   // ── Load all quizzes from Supabase on mount ────────────────────────────────
   useEffect(() => {
@@ -920,400 +985,410 @@ export default function MockTestApp() {
     setPage("dashboard");
   }
 
+  const themeValue = { t, isDark, toggle: toggleTheme };
+
   if (page === "test" && activeTest) {
     return (
-      <div style={styles.root}>
-        <TestInterface test={activeTest} onBack={handleBack} />
-      </div>
+      <ThemeContext.Provider value={themeValue}>
+        <div style={{ minHeight: "100vh", background: t.bg, color: t.text2, fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
+          <TestInterface test={activeTest} onBack={handleBack} />
+        </div>
+      </ThemeContext.Provider>
     );
   }
 
   return (
-    <div style={styles.root}>
-      <Nav page={page} setPage={setPage} testsCount={tests.length} />
-      <main style={styles.main}>
-        {page === "dashboard" && (
-          <Dashboard
-            tests={tests}
-            onStart={handleStart}
-            onDelete={handleDelete}
-            loading={loading}
-            error={dbError}
-          />
-        )}
-        {page === "create" && (
-          <CreateTest onCreate={test => { handleCreate(test); setPage("dashboard"); }} />
-        )}
-      </main>
-    </div>
+    <ThemeContext.Provider value={themeValue}>
+      <div style={{ minHeight: "100vh", background: t.bg, color: t.text2, fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
+        <Nav page={page} setPage={setPage} testsCount={tests.length} />
+        <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" }}>
+          {page === "dashboard" && (
+            <Dashboard
+              tests={tests}
+              onStart={handleStart}
+              onDelete={handleDelete}
+              loading={loading}
+              error={dbError}
+            />
+          )}
+          {page === "create" && (
+            <CreateTest onCreate={test => { handleCreate(test); setPage("dashboard"); }} />
+          )}
+        </main>
+      </div>
+    </ThemeContext.Provider>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLES
 // ═══════════════════════════════════════════════════════════════════════════════
-const styles = {
-  root: {
-    minHeight: "100vh",
-    background: "#0a0f1e",
-    color: "#e2e8f0",
-    fontFamily: "'IBM Plex Mono', 'Courier New', monospace"
-  },
-  // NAV
-  nav: {
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
-    background: "#0d1424", borderBottom: "1px solid #1e293b",
-    position: "sticky", top: 0, zIndex: 100
-  },
-  navBrand: { display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" },
-  navLogo: {
-    width: "32px", height: "32px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "16px", borderRadius: "6px", fontWeight: "bold"
-  },
-  navTitle: { fontSize: "16px", fontWeight: "700", letterSpacing: "4px", color: "#f1f5f9" },
-  navLinks: { display: "flex", gap: "8px" },
-  navBtn: {
-    padding: "8px 20px", borderRadius: "6px", border: "1px solid #1e293b",
-    background: "transparent", color: "#94a3b8", cursor: "pointer",
-    fontSize: "13px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
-    transition: "all 0.2s"
-  },
-  navBtnActive: { background: "#1e293b", color: "#e2e8f0", borderColor: "#334155" },
-  navBadge: {
-    background: "#6366f1", color: "white", borderRadius: "10px",
-    padding: "1px 8px", fontSize: "11px", fontWeight: "bold"
-  },
-  // MAIN
-  main: { maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" },
-  page: {},
-  // DASHBOARD
-  dashHeader: { marginBottom: "32px" },
-  dashTitle: { fontSize: "clamp(22px, 5vw, 32px)", fontWeight: "700", color: "#f1f5f9", margin: 0, letterSpacing: "-0.5px" },
-  dashSub: { color: "#64748b", marginTop: "6px", fontSize: "14px" },
-  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: "16px" },
-  card: {
-    background: "#0d1424", border: "1px solid #1e293b", borderRadius: "12px",
-    padding: "24px", transition: "all 0.2s", cursor: "default"
-  },
-  cardHover: { border: "1px solid #334155", transform: "translateY(-2px)", boxShadow: "0 8px 32px #6366f120" },
-  cardTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" },
-  cardSubject: { fontSize: "11px", fontWeight: "600", letterSpacing: "2px", color: "#6366f1", textTransform: "uppercase" },
-  cardDiff: { fontSize: "12px", fontWeight: "600" },
-  cardTitle: { fontSize: "18px", fontWeight: "700", color: "#f1f5f9", margin: "0 0 16px", lineHeight: 1.3 },
-  cardMeta: { display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "20px" },
-  metaItem: { fontSize: "12px", color: "#64748b" },
-  cardActions: { display: "flex", gap: "10px", alignItems: "center" },
-  startBtn: {
-    flex: 1, padding: "10px 20px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
-  },
-  deleteBtn: {
-    padding: "10px 12px", background: "#1e293b", border: "1px solid #334155",
-    borderRadius: "8px", cursor: "pointer", fontSize: "14px"
-  },
-  emptyState: { textAlign: "center", padding: "80px 20px" },
-  emptyIcon: { fontSize: "64px", marginBottom: "20px" },
-  emptyTitle: { fontSize: "24px", fontWeight: "700", color: "#e2e8f0", margin: "0 0 8px" },
-  emptySub: { color: "#64748b", fontSize: "14px" },
-  // CREATE
-  createLayout: { display: "grid", gridTemplateColumns: "1fr 380px", gap: "24px", marginTop: "24px" },
-  editorPanel: { display: "flex", flexDirection: "column", gap: "12px" },
-  editorHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  editorLabel: { fontSize: "13px", fontWeight: "600", color: "#94a3b8", letterSpacing: "1px" },
-  resetBtn: {
-    padding: "6px 14px", background: "transparent", border: "1px solid #334155",
-    color: "#64748b", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
-  },
-  textarea: {
-    width: "100%", minHeight: "460px", padding: "20px",
-    background: "#0d1424", border: "1px solid #1e293b", borderRadius: "10px",
-    color: "#a5f3fc", fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
-    lineHeight: 1.7, resize: "vertical", outline: "none", boxSizing: "border-box"
-  },
-  errorBox: {
-    background: "#f8717115", border: "1px solid #f8717140", borderRadius: "8px",
-    padding: "12px 16px", color: "#f87171", fontSize: "13px"
-  },
-  successBox: {
-    background: "#4ade8015", border: "1px solid #4ade8040", borderRadius: "8px",
-    padding: "12px 16px", color: "#4ade80", fontSize: "13px"
-  },
-  createBtn: {
-    padding: "14px 28px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-    color: "white", border: "none", borderRadius: "10px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "14px", letterSpacing: "0.5px"
-  },
-  schemaPanel: {
-    background: "#0d1424", border: "1px solid #1e293b", borderRadius: "12px",
-    padding: "24px", display: "flex", flexDirection: "column", gap: "12px",
-    alignSelf: "start", position: "sticky", top: "80px"
-  },
-  schemaTitle: { fontSize: "13px", fontWeight: "600", color: "#94a3b8", margin: "0 0 8px", letterSpacing: "1px", textTransform: "uppercase" },
-  schemaRow: { display: "flex", flexDirection: "column", gap: "3px", paddingBottom: "10px", borderBottom: "1px solid #1e293b" },
-  schemaField: { display: "flex", alignItems: "center", gap: "8px" },
-  fieldCode: { fontSize: "12px", color: "#a5f3fc", background: "#0a1628", padding: "2px 6px", borderRadius: "4px" },
-  reqBadge: { fontSize: "10px", color: "#f87171", border: "1px solid #f8717140", borderRadius: "4px", padding: "1px 6px" },
-  schemaType: { fontSize: "11px", color: "#6366f1" },
-  schemaDesc: { fontSize: "12px", color: "#64748b" },
-  // TEST
-  testWrap: { minHeight: "100vh", background: "#0a0f1e", display: "flex", flexDirection: "column" },
-  timerBar: {
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "12px 32px", background: "#0d1424", borderBottom: "1px solid #1e293b"
-  },
-  timerLeft: {},
-  testTitleSmall: { fontSize: "13px", color: "#64748b", fontFamily: "'IBM Plex Mono', monospace" },
-  timerDisplay: {
-    display: "flex", alignItems: "center", gap: "8px",
-    background: "#1e293b", padding: "8px 20px", borderRadius: "8px"
-  },
-  timerDanger: { background: "#f8717120", animation: "pulse 1s infinite" },
-  timerIcon: { fontSize: "16px" },
-  timerText: { fontSize: "20px", fontWeight: "700", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "2px" },
-  timerRight: {},
-  timerProgress: { fontSize: "13px", color: "#64748b", fontFamily: "'IBM Plex Mono', monospace" },
-  timerTrack: { height: "3px", background: "#1e293b" },
-  timerFill: { height: "100%", transition: "width 1s linear" },
-  testBody: { display: "flex", flex: 1 },
-  // SIDEBAR
-  sidebar: {
-    width: "220px", background: "#0d1424", borderRight: "1px solid #1e293b",
-    padding: "24px 16px", display: "flex", flexDirection: "column", gap: "16px"
-  },
-  sidebarLabel: { fontSize: "11px", fontWeight: "600", color: "#64748b", letterSpacing: "2px", textTransform: "uppercase", margin: 0 },
-  qGrid: { display: "flex", flexWrap: "wrap", gap: "6px" },
-  qDot: {
-    width: "36px", height: "36px", borderRadius: "8px",
-    background: "#1e293b", border: "1px solid #334155", color: "#94a3b8",
-    cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit"
-  },
-  qDotCurrent: { background: "#6366f1", border: "1px solid #6366f1", color: "white" },
-  qDotAnswered: { background: "#4ade8020", border: "1px solid #4ade8060", color: "#4ade80" },
-  qDotFlagged: { background: "#facc1520", border: "1px solid #facc1560", color: "#facc15" },
-  sidebarLegend: { display: "flex", flexDirection: "column", gap: "6px" },
-  legendItem: { fontSize: "11px", color: "#64748b", display: "flex", alignItems: "center", gap: "6px" },
-  legendDot: { width: "10px", height: "10px", borderRadius: "50%", display: "inline-block" },
-  submitSideBtn: {
-    marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
-  },
-  // QUESTION AREA
-  questionArea: { flex: 1, padding: "40px 48px", maxWidth: "800px" },
-  questionMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
-  questionNum: { fontSize: "13px", color: "#64748b", fontFamily: "'IBM Plex Mono', monospace" },
-  flagBtn: {
-    padding: "6px 14px", background: "transparent", border: "1px solid #334155",
-    color: "#64748b", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
-  },
-  flagBtnActive: { border: "1px solid #facc1560", color: "#facc15", background: "#facc1510" },
-  questionText: { fontSize: "22px", fontWeight: "600", color: "#f1f5f9", lineHeight: 1.5, marginBottom: "32px" },
-  optionsList: { display: "flex", flexDirection: "column", gap: "12px", marginBottom: "40px" },
-  optionBtn: {
-    display: "flex", alignItems: "center", gap: "16px",
-    padding: "16px 20px", background: "#0d1424", border: "2px solid #1e293b",
-    borderRadius: "10px", cursor: "pointer", color: "#e2e8f0",
-    textAlign: "left", transition: "all 0.15s", fontFamily: "inherit"
-  },
-  optionBtnSelected: { border: "2px solid #6366f1", background: "#6366f115" },
-  optionLabel: {
-    width: "32px", height: "32px", background: "#1e293b", borderRadius: "6px",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "13px", fontWeight: "700", color: "#64748b", flexShrink: 0
-  },
-  optionLabelSelected: { background: "#6366f1", color: "white" },
-  optionText: { fontSize: "15px" },
-  navBtns: { display: "flex", gap: "12px" },
-  navTestBtn: {
-    padding: "12px 24px", background: "#1e293b", border: "1px solid #334155",
-    color: "#94a3b8", borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "13px"
-  },
-  navTestBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
-  navTestBtnPrimary: {
-    padding: "12px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
-  },
-  navTestBtnSubmit: {
-    padding: "12px 24px", background: "linear-gradient(135deg, #4ade80, #22c55e)",
-    color: "#0a0f1e", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
-  },
-  // RESULTS
-  resultsWrap: { maxWidth: "900px", margin: "0 auto", padding: "40px 32px" },
-  resultsSummary: {
-    display: "flex", gap: "48px", alignItems: "center",
-    background: "#0d1424", border: "1px solid #1e293b", borderRadius: "16px",
-    padding: "40px", marginBottom: "48px"
-  },
-  scoreCircleWrap: { position: "relative", flexShrink: 0 },
-  scoreInner: {
-    position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-    alignItems: "center", justifyContent: "center"
-  },
-  scoreNum: { fontSize: "28px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
-  scoreLabel: { fontSize: "13px", color: "#64748b" },
-  summaryInfo: { flex: 1 },
-  resultsTitle: { fontSize: "28px", fontWeight: "800", color: "#f1f5f9", margin: "0 0 8px" },
-  resultsSub: { color: "#64748b", fontSize: "14px", marginBottom: "28px" },
-  summaryStats: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "28px" },
-  statBox: {
-    background: "#0a0f1e", border: "1px solid #1e293b", borderRadius: "10px",
-    padding: "16px", display: "flex", flexDirection: "column", gap: "4px"
-  },
-  statValue: { fontSize: "22px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
-  statLabel: { fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px" },
-  backBtn: {
-    padding: "12px 24px", background: "#1e293b", border: "1px solid #334155",
-    color: "#e2e8f0", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
-  },
-  reviewTitle: { fontSize: "20px", fontWeight: "700", color: "#f1f5f9", marginBottom: "20px" },
-  reviewList: { display: "flex", flexDirection: "column", gap: "12px" },
-  reviewCard: {
-    background: "#0d1424", border: "1px solid", borderRadius: "10px", overflow: "hidden"
-  },
-  reviewCardTop: {
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-    padding: "16px 20px", cursor: "pointer"
-  },
-  reviewCardLeft: { display: "flex", alignItems: "center", gap: "12px", flex: 1 },
-  reviewStatus: { fontSize: "18px", fontWeight: "800", width: "24px" },
-  reviewQNum: { fontSize: "12px", color: "#64748b", fontFamily: "'IBM Plex Mono', monospace" },
-  reviewQText: { fontSize: "14px", color: "#e2e8f0" },
-  reviewExpand: { fontSize: "12px", color: "#64748b" },
-  reviewDetail: { padding: "0 20px 20px", borderTop: "1px solid #1e293b" },
-  reviewOptions: { display: "flex", flexDirection: "column", gap: "8px", paddingTop: "16px" },
-  reviewOpt: {
-    display: "flex", alignItems: "center", gap: "12px",
-    padding: "10px 14px", border: "1px solid", borderRadius: "8px", fontSize: "13px", color: "#e2e8f0"
-  },
-  reviewOptLabel: {
-    width: "24px", height: "24px", background: "#1e293b", borderRadius: "4px",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "11px", fontWeight: "700", flexShrink: 0
-  },
-  correctTag: { marginLeft: "auto", fontSize: "11px", color: "#4ade80", fontWeight: "600" },
-  wrongTag: { marginLeft: "auto", fontSize: "11px", color: "#f87171", fontWeight: "600" },
-  explanation: {
-    marginTop: "16px", background: "#6366f110", border: "1px solid #6366f130",
-    borderRadius: "8px", padding: "16px"
-  },
-  explanationLabel: { fontSize: "12px", fontWeight: "700", color: "#6366f1", letterSpacing: "1px", display: "block", marginBottom: "8px" },
-  explanationText: { fontSize: "13px", color: "#94a3b8", lineHeight: 1.7, margin: 0 },
+function getStyles(t) { 
+  return {
+    root: {
+        minHeight: "100vh",
+        background: t.bg,
+        color: t.text2,
+        fontFamily: "'IBM Plex Mono', 'Courier New', monospace"
+    },
+    // NAV
+    nav: {
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
+        background: t.bgCard, borderBottom: `1px solid ${t.border}`,
+        position: "sticky", top: 0, zIndex: 100
+    },
+    navBrand: { display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" },
+    navLogo: {
+        width: "32px", height: "32px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "16px", borderRadius: "6px", fontWeight: "bold"
+    },
+    navTitle: { fontSize: "16px", fontWeight: "700", letterSpacing: "4px", color: t.text1 },
+    navLinks: { display: "flex", gap: "8px" },
+    navBtn: {
+        padding: "8px 20px", borderRadius: "6px", border: `1px solid ${t.border}`,
+        background: "transparent", color: t.text3, cursor: "pointer",
+        fontSize: "13px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
+        transition: "all 0.2s"
+    },
+    navBtnActive: { background: t.bgHover, color: t.text2, borderColor: "#334155" },
+    navBadge: {
+        background: "#6366f1", color: "white", borderRadius: "10px",
+        padding: "1px 8px", fontSize: "11px", fontWeight: "bold"
+    },
+    // MAIN
+    main: { maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" },
+    page: {},
+    // DASHBOARD
+    dashHeader: { marginBottom: "32px" },
+    dashTitle: { fontSize: "clamp(22px, 5vw, 32px)", fontWeight: "700", color: t.text1, margin: 0, letterSpacing: "-0.5px" },
+    dashSub: { color: t.text4, marginTop: "6px", fontSize: "14px" },
+    cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: "16px" },
+    card: {
+        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
+        padding: "24px", transition: "all 0.2s", cursor: "default"
+    },
+    cardHover: { border: `1px solid ${t.borderMid}`, transform: "translateY(-2px)", boxShadow: "0 8px 32px #6366f120" },
+    cardTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" },
+    cardSubject: { fontSize: "11px", fontWeight: "600", letterSpacing: "2px", color: "#6366f1", textTransform: "uppercase" },
+    cardDiff: { fontSize: "12px", fontWeight: "600" },
+    cardTitle: { fontSize: "18px", fontWeight: "700", color: t.text1, margin: "0 0 16px", lineHeight: 1.3 },
+    cardMeta: { display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "20px" },
+    metaItem: { fontSize: "12px", color: t.text4 },
+    cardActions: { display: "flex", gap: "10px", alignItems: "center" },
+    startBtn: {
+        flex: 1, padding: "10px 20px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
+    },
+    deleteBtn: {
+        padding: "10px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+        borderRadius: "8px", cursor: "pointer", fontSize: "14px"
+    },
+    emptyState: { textAlign: "center", padding: "80px 20px" },
+    emptyIcon: { fontSize: "64px", marginBottom: "20px" },
+    emptyTitle: { fontSize: "24px", fontWeight: "700", color: t.text2, margin: "0 0 8px" },
+    emptySub: { color: t.text4, fontSize: "14px" },
+    // CREATE
+    createLayout: { display: "grid", gridTemplateColumns: "1fr 380px", gap: "24px", marginTop: "24px" },
+    editorPanel: { display: "flex", flexDirection: "column", gap: "12px" },
+    editorHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+    editorLabel: { fontSize: "13px", fontWeight: "600", color: t.text3, letterSpacing: "1px" },
+    resetBtn: {
+        padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
+        color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
+    },
+    textarea: {
+        width: "100%", minHeight: "460px", padding: "20px",
+        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "10px",
+        color: t.code, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
+        lineHeight: 1.7, resize: "vertical", outline: "none", boxSizing: "border-box"
+    },
+    errorBox: {
+        background: "#f8717115", border: "1px solid #f8717140", borderRadius: "8px",
+        padding: "12px 16px", color: "#f87171", fontSize: "13px"
+    },
+    successBox: {
+        background: "#4ade8015", border: "1px solid #4ade8040", borderRadius: "8px",
+        padding: "12px 16px", color: "#4ade80", fontSize: "13px"
+    },
+    createBtn: {
+        padding: "14px 28px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        color: "white", border: "none", borderRadius: "10px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "700", fontSize: "14px", letterSpacing: "0.5px"
+    },
+    schemaPanel: {
+        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
+        padding: "24px", display: "flex", flexDirection: "column", gap: "12px",
+        alignSelf: "start", position: "sticky", top: "80px"
+    },
+    schemaTitle: { fontSize: "13px", fontWeight: "600", color: t.text3, margin: "0 0 8px", letterSpacing: "1px", textTransform: "uppercase" },
+    schemaRow: { display: "flex", flexDirection: "column", gap: "3px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
+    schemaField: { display: "flex", alignItems: "center", gap: "8px" },
+    fieldCode: { fontSize: "12px", color: t.code, background: "#0a1628", padding: "2px 6px", borderRadius: "4px" },
+    reqBadge: { fontSize: "10px", color: "#f87171", border: "1px solid #f8717140", borderRadius: "4px", padding: "1px 6px" },
+    schemaType: { fontSize: "11px", color: "#6366f1" },
+    schemaDesc: { fontSize: "12px", color: t.text4 },
+    // TEST
+    testWrap: { minHeight: "100vh", background: t.bg, display: "flex", flexDirection: "column", touchAction: "manipulation" },
+    timerBar: {
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "12px 32px", background: t.bgCard, borderBottom: `1px solid ${t.border}`
+    },
+    timerLeft: {},
+    testTitleSmall: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+    timerDisplay: {
+        display: "flex", alignItems: "center", gap: "8px",
+        background: t.bgHover, padding: "8px 20px", borderRadius: "8px"
+    },
+    timerDanger: { background: "#f8717120", animation: "pulse 1s infinite" },
+    timerIcon: { fontSize: "16px" },
+    timerText: { fontSize: "20px", fontWeight: "700", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "2px" },
+    timerRight: {},
+    timerProgress: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+    timerTrack: { height: "3px", background: t.bgHover },
+    timerFill: { height: "100%", transition: "width 1s linear" },
+    testBody: { display: "flex", flex: 1 },
+    // SIDEBAR
+    sidebar: {
+        width: "220px", background: t.bgCard, borderRight: `1px solid ${t.border}`,
+        padding: "24px 16px", display: "flex", flexDirection: "column", gap: "16px"
+    },
+    sidebarLabel: { fontSize: "11px", fontWeight: "600", color: t.text4, letterSpacing: "2px", textTransform: "uppercase", margin: 0 },
+    qGrid: { display: "flex", flexWrap: "wrap", gap: "6px" },
+    qDot: {
+        width: "36px", height: "36px", borderRadius: "8px",
+        background: t.bgHover, border: `1px solid ${t.borderMid}`, color: t.text3,
+        cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit"
+    },
+    qDotCurrent: { background: "#6366f1", border: "1px solid #6366f1", color: "white" },
+    qDotAnswered: { background: "#4ade8020", border: "1px solid #4ade8060", color: "#4ade80" },
+    qDotFlagged: { background: "#facc1520", border: "1px solid #facc1560", color: "#facc15" },
+    sidebarLegend: { display: "flex", flexDirection: "column", gap: "6px" },
+    legendItem: { fontSize: "11px", color: t.text4, display: "flex", alignItems: "center", gap: "6px" },
+    legendDot: { width: "10px", height: "10px", borderRadius: "50%", display: "inline-block" },
+    submitSideBtn: {
+        marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+    },
+    // QUESTION AREA
+    questionArea: { flex: 1, padding: "40px 48px", maxWidth: "800px" },
+    questionMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
+    questionNum: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+    flagBtn: {
+        padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
+        color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
+    },
+    flagBtnActive: { border: "1px solid #facc1560", color: "#facc15", background: "#facc1510" },
+    questionText: { fontSize: "22px", fontWeight: "600", color: t.text1, lineHeight: 1.5, marginBottom: "32px" },
+    optionsList: { display: "flex", flexDirection: "column", gap: "12px", marginBottom: "40px" },
+    optionBtn: {
+        display: "flex", alignItems: "center", gap: "16px",
+        padding: "16px 20px", background: t.bgCard, border: `2px solid ${t.border}`,
+        borderRadius: "10px", cursor: "pointer", color: t.text2,
+        textAlign: "left", transition: "all 0.15s", fontFamily: "inherit",
+        width: "100%", pointerEvents: "auto", userSelect: "none", WebkitUserSelect: "none",
+        touchAction: "manipulation"
+    },
+    optionBtnSelected: { border: "2px solid #6366f1", background: "#6366f115" },
+    optionLabel: {
+        width: "32px", height: "32px", background: t.bgHover, borderRadius: "6px",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "13px", fontWeight: "700", color: t.text4, flexShrink: 0
+    },
+    optionLabelSelected: { background: "#6366f1", color: "white" },
+    optionText: { fontSize: "15px" },
+    navBtns: { display: "flex", gap: "12px" },
+    navTestBtn: {
+        padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+        color: t.text3, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "13px"
+    },
+    navTestBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
+    navTestBtnPrimary: {
+        padding: "12px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+    },
+    navTestBtnSubmit: {
+        padding: "12px 24px", background: "linear-gradient(135deg, #4ade80, #22c55e)",
+        color: t.bg, border: "none", borderRadius: "8px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+    },
+    // RESULTS
+    resultsWrap: { maxWidth: "900px", margin: "0 auto", padding: "40px 32px" },
+    resultsSummary: {
+        display: "flex", gap: "48px", alignItems: "center",
+        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px",
+        padding: "40px", marginBottom: "48px"
+    },
+    scoreCircleWrap: { position: "relative", flexShrink: 0 },
+    scoreInner: {
+        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center"
+    },
+    scoreNum: { fontSize: "28px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
+    scoreLabel: { fontSize: "13px", color: t.text4 },
+    summaryInfo: { flex: 1 },
+    resultsTitle: { fontSize: "28px", fontWeight: "800", color: t.text1, margin: "0 0 8px" },
+    resultsSub: { color: t.text4, fontSize: "14px", marginBottom: "28px" },
+    summaryStats: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "28px" },
+    statBox: {
+        background: t.bg, border: `1px solid ${t.border}`, borderRadius: "10px",
+        padding: "16px", display: "flex", flexDirection: "column", gap: "4px"
+    },
+    statValue: { fontSize: "22px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
+    statLabel: { fontSize: "11px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" },
+    backBtn: {
+        padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+        color: t.text2, borderRadius: "8px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
+    },
+    reviewTitle: { fontSize: "20px", fontWeight: "700", color: t.text1, marginBottom: "20px" },
+    reviewList: { display: "flex", flexDirection: "column", gap: "12px" },
+    reviewCard: {
+        background: t.bgCard, border: "1px solid", borderRadius: "10px", overflow: "hidden"
+    },
+    reviewCardTop: {
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "16px 20px", cursor: "pointer"
+    },
+    reviewCardLeft: { display: "flex", alignItems: "center", gap: "12px", flex: 1 },
+    reviewStatus: { fontSize: "18px", fontWeight: "800", width: "24px" },
+    reviewQNum: { fontSize: "12px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+    reviewQText: { fontSize: "14px", color: t.text2 },
+    reviewExpand: { fontSize: "12px", color: t.text4 },
+    reviewDetail: { padding: "0 20px 20px", borderTop: `1px solid ${t.border}` },
+    reviewOptions: { display: "flex", flexDirection: "column", gap: "8px", paddingTop: "16px" },
+    reviewOpt: {
+        display: "flex", alignItems: "center", gap: "12px",
+        padding: "10px 14px", border: "1px solid", borderRadius: "8px", fontSize: "13px", color: t.text2
+    },
+    reviewOptLabel: {
+        width: "24px", height: "24px", background: t.bgHover, borderRadius: "4px",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "11px", fontWeight: "700", flexShrink: 0
+    },
+    correctTag: { marginLeft: "auto", fontSize: "11px", color: "#4ade80", fontWeight: "600" },
+    wrongTag: { marginLeft: "auto", fontSize: "11px", color: "#f87171", fontWeight: "600" },
+    explanation: {
+        marginTop: "16px", background: "#6366f110", border: "1px solid #6366f130",
+        borderRadius: "8px", padding: "16px"
+    },
+    explanationLabel: { fontSize: "12px", fontWeight: "700", color: "#6366f1", letterSpacing: "1px", display: "block", marginBottom: "8px" },
+    explanationText: { fontSize: "13px", color: t.text3, lineHeight: 1.7, margin: 0 },
 
-  // ─── MOBILE / RESPONSIVE ────────────────────────────────────────────────────
-  navBtnMobile: { padding: "8px 14px", fontSize: "16px" },
-  createLayoutMobile: { gridTemplateColumns: "1fr" },
-  timerBarMobile: { padding: "10px 16px" },
-  timerDisplayMobile: { padding: "6px 14px" },
-  questionAreaMobile: { padding: "20px 16px 160px 16px", maxWidth: "100%" },
-  questionTextMobile: { fontSize: "17px", marginBottom: "20px" },
-  optionBtnMobile: { padding: "14px 14px", gap: "12px" },
-  navBtnsMobile: { position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px", background: "#0a0f1e", borderTop: "1px solid #1e293b", zIndex: 50 },
-  qNavToggleBtn: {
-    padding: "6px 12px", background: "#1e293b", border: "1px solid #334155",
-    color: "#94a3b8", borderRadius: "6px", cursor: "pointer", fontSize: "13px",
-    fontFamily: "inherit"
-  },
-  submitTopBtn: {
-    padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-    color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
-  },
-  mobileQNav: {
-    background: "#0d1424", borderBottom: "1px solid #334155",
-    padding: "16px", display: "flex", flexDirection: "column", gap: "12px"
-  },
-  mobileQNavHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  closeDrawerBtn: {
-    background: "transparent", border: "none", color: "#94a3b8",
-    fontSize: "16px", cursor: "pointer", padding: "4px 8px"
-  },
-  resultsWrapMobile: { padding: "16px" },
-  resultsSummaryMobile: { flexDirection: "column", gap: "20px", padding: "24px", alignItems: "center", textAlign: "center" },
-  summaryStatsMobile: { gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" },
-  statBoxMobile: { padding: "12px" },
-  reviewOptMobile: { flexWrap: "wrap", gap: "8px" },
+    // ─── MOBILE / RESPONSIVE ────────────────────────────────────────────────────
+    navBtnMobile: { padding: "8px 14px", fontSize: "16px" },
+    createLayoutMobile: { gridTemplateColumns: "1fr" },
+    timerBarMobile: { padding: "10px 16px" },
+    timerDisplayMobile: { padding: "6px 14px" },
+    questionAreaMobile: { padding: "20px 16px 160px 16px", maxWidth: "100%" },
+    questionTextMobile: { fontSize: "17px", marginBottom: "20px" },
+    optionBtnMobile: { padding: "14px 14px", gap: "12px" },
+    navBtnsMobile: { position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px", background: t.bg, borderTop: `1px solid ${t.border}`, zIndex: 50 },
+    qNavToggleBtn: {
+        padding: "6px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+        color: t.text3, borderRadius: "6px", cursor: "pointer", fontSize: "13px",
+        fontFamily: "inherit"
+    },
+    submitTopBtn: {
+        padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
+    },
+    mobileQNav: {
+        background: t.bgCard, borderBottom: `1px solid ${t.borderMid}`,
+        padding: "16px", display: "flex", flexDirection: "column", gap: "12px"
+    },
+    mobileQNavHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+    closeDrawerBtn: {
+        background: "transparent", border: "none", color: t.text3,
+        fontSize: "16px", cursor: "pointer", padding: "4px 8px"
+    },
+    resultsWrapMobile: { padding: "16px" },
+    resultsSummaryMobile: { flexDirection: "column", gap: "20px", padding: "24px", alignItems: "center", textAlign: "center" },
+    summaryStatsMobile: { gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" },
+    statBoxMobile: { padding: "12px" },
+    reviewOptMobile: { flexWrap: "wrap", gap: "8px" },
 
-  // ─── ANTI-CHEAT ─────────────────────────────────────────────────────────────
-  warningOverlay: {
-    position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    zIndex: 9999, backdropFilter: "blur(6px)"
-  },
-  warningBox: {
-    background: "#0d1424", border: "2px solid #f87171",
-    borderRadius: "16px", padding: "48px 40px", maxWidth: "420px",
-    textAlign: "center", display: "flex", flexDirection: "column",
-    alignItems: "center", gap: "16px", boxShadow: "0 0 60px #f8717140"
-  },
-  warningIcon: { fontSize: "48px" },
-  warningTitle: { fontSize: "22px", fontWeight: "800", color: "#f87171", margin: 0 },
-  warningDesc: { fontSize: "14px", color: "#94a3b8", lineHeight: 1.6, margin: 0 },
-  warningBtn: {
-    marginTop: "8px", padding: "12px 32px",
-    background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "14px"
-  },
-  tabAlertBanner: {
-    background: "#facc1515", borderBottom: "1px solid #facc1540",
-    color: "#facc15", padding: "10px 20px", fontSize: "13px",
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-    fontFamily: "inherit"
-  },
-  tabAlertClose: {
-    background: "transparent", border: "none", color: "#facc15",
-    cursor: "pointer", fontSize: "14px", padding: "2px 6px", fontFamily: "inherit"
-  },
-  copyBanner: {
-    position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)",
-    background: "#f8717120", border: "1px solid #f87171", borderRadius: "8px",
-    color: "#f87171", padding: "10px 20px", fontSize: "13px",
-    zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
-  },
-  warningChip: {
-    fontSize: "12px", color: "#facc15", background: "#facc1515",
-    border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
-  },
-  fsIndicator: {
-    fontSize: "12px", fontFamily: "inherit"
-  },
+    // ─── ANTI-CHEAT ─────────────────────────────────────────────────────────────
+    warningOverlay: {
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 9999, backdropFilter: "blur(6px)"
+    },
+    warningBox: {
+        background: t.bgCard, border: "2px solid #f87171",
+        borderRadius: "16px", padding: "48px 40px", maxWidth: "420px",
+        textAlign: "center", display: "flex", flexDirection: "column",
+        alignItems: "center", gap: "16px", boxShadow: "0 0 60px #f8717140"
+    },
+    warningIcon: { fontSize: "48px" },
+    warningTitle: { fontSize: "22px", fontWeight: "800", color: "#f87171", margin: 0 },
+    warningDesc: { fontSize: "14px", color: t.text3, lineHeight: 1.6, margin: 0 },
+    warningBtn: {
+        marginTop: "8px", padding: "12px 32px",
+        background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+        fontFamily: "inherit", fontWeight: "700", fontSize: "14px"
+    },
+    tabAlertBanner: {
+        background: "#facc1515", borderBottom: "1px solid #facc1540",
+        color: "#facc15", padding: "10px 20px", fontSize: "13px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        fontFamily: "inherit"
+    },
+    tabAlertClose: {
+        background: "transparent", border: "none", color: "#facc15",
+        cursor: "pointer", fontSize: "14px", padding: "2px 6px", fontFamily: "inherit"
+    },
+    copyBanner: {
+        position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)",
+        background: "#f8717120", border: "1px solid #f87171", borderRadius: "8px",
+        color: "#f87171", padding: "10px 20px", fontSize: "13px",
+        zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
+    },
+    warningChip: {
+        fontSize: "12px", color: "#facc15", background: "#facc1515",
+        border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
+    },
+    fsIndicator: {
+        fontSize: "12px", fontFamily: "inherit"
+    },
 
-  // ─── DB / LOADING ────────────────────────────────────────────────────────────
-  loadingState: {
-    display: "flex", flexDirection: "column", alignItems: "center",
-    justifyContent: "center", padding: "80px 20px", gap: "20px"
-  },
-  spinner: {
-    width: "40px", height: "40px", borderRadius: "50%",
-    border: "3px solid #1e293b", borderTop: "3px solid #6366f1",
-    animation: "spin 0.8s linear infinite"
-  },
-  loadingText: { color: "#64748b", fontSize: "14px" },
-  dbErrorBox: {
-    background: "#f8717110", border: "1px solid #f8717140", borderRadius: "10px",
-    padding: "16px 20px", marginBottom: "24px", display: "flex", gap: "14px", alignItems: "flex-start"
-  },
-  dbErrorIcon: { fontSize: "20px", color: "#f87171", flexShrink: 0 },
-  dbErrorMsg: { margin: "4px 0 0", fontSize: "13px", color: "#94a3b8" },
-  dbLog: {
-    background: "#060c1a", border: "1px solid #1e293b", borderRadius: "8px",
-    padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px"
-  },
-  dbLogLine: {
-    fontSize: "12px", color: "#94a3b8", fontFamily: "'IBM Plex Mono', monospace",
-    display: "flex", gap: "8px", alignItems: "flex-start"
-  },
-  createBtnSaving: { opacity: 0.6, cursor: "not-allowed" },
-  archRow: { display: "flex", flexDirection: "column", gap: "4px", paddingBottom: "10px", borderBottom: "1px solid #1e293b" },
-  archTable: {
-    fontSize: "12px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700",
-    border: "1px solid", borderRadius: "4px", padding: "2px 8px",
-    display: "inline-block", alignSelf: "flex-start"
-  },
-};
+    // ─── DB / LOADING ────────────────────────────────────────────────────────────
+    loadingState: {
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", padding: "80px 20px", gap: "20px"
+    },
+    spinner: {
+        width: "40px", height: "40px", borderRadius: "50%",
+        border: `3px solid ${t.border}`, borderTop: "3px solid #6366f1",
+        animation: "spin 0.8s linear infinite"
+    },
+    loadingText: { color: t.text4, fontSize: "14px" },
+    dbErrorBox: {
+        background: "#f8717110", border: "1px solid #f8717140", borderRadius: "10px",
+        padding: "16px 20px", marginBottom: "24px", display: "flex", gap: "14px", alignItems: "flex-start"
+    },
+    dbErrorIcon: { fontSize: "20px", color: "#f87171", flexShrink: 0 },
+    dbErrorMsg: { margin: "4px 0 0", fontSize: "13px", color: t.text3 },
+    dbLog: {
+        background: t.bgDeep, border: `1px solid ${t.border}`, borderRadius: "8px",
+        padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px"
+    },
+    dbLogLine: {
+        fontSize: "12px", color: t.text3, fontFamily: "'IBM Plex Mono', monospace",
+        display: "flex", gap: "8px", alignItems: "flex-start"
+    },
+    createBtnSaving: { opacity: 0.6, cursor: "not-allowed" },
+    archRow: { display: "flex", flexDirection: "column", gap: "4px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
+    archTable: {
+        fontSize: "12px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700",
+        border: "1px solid", borderRadius: "4px", padding: "2px 8px",
+        display: "inline-block", alignSelf: "flex-start"
+    },
+  }; 
+}
