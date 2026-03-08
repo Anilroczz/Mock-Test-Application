@@ -23,12 +23,9 @@ function shuffleArray(arr) {
   return a;
 }
 
-// Shuffle questions and their options, keeping answer tracking intact
+// Shuffle questions, keeping their options and answer tracking intact
 function buildShuffledTest(test) {
-  const shuffledQuestions = shuffleArray(test.questions).map(q => {
-    const shuffledOptions = shuffleArray(q.options);
-    return { ...q, options: shuffledOptions };
-  });
+  const shuffledQuestions = shuffleArray(test.questions);
   return { ...test, questions: shuffledQuestions };
 }
 
@@ -208,7 +205,7 @@ function CreateTest({ onCreate }) {
         }
         fingerprints.add(fp);
       });
-      
+
     } catch (e) {
       setError(e.message);
       return;
