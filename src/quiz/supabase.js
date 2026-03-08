@@ -56,29 +56,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // -- create index on questions(question);
 //
 // ═══════════════════════════════════════════════════════════════════════════════
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * True DB upsert on the `question` text column.
- * Requires a unique index on questions(question) — see schema note below.
- * On conflict (same question text), updates options/answer/explanation so
- * the bank stays fresh, and always returns the canonical row id.
- */
-async function upsertQuestion({ question, options, answer, explanation, topic }) {
-  const { data, error } = await supabase
-    .from("questions")
-    .upsert(
-      { question, options, answer, explanation: explanation || null, topic: topic || null },
-      { onConflict: "question", ignoreDuplicates: false }   // update existing row in place
-    )
-    .select("id")
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
+//
+//
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
