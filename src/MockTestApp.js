@@ -1,10 +1,16 @@
 import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from "react";
 import "./MockTestApp.css";
 import { saveQuiz, fetchQuizzes, fetchQuizWithQuestions, deleteQuiz } from "./supabase";
+import { saveAttempt, fetchMyAttempts, fetchQuizAttempts } from "./supabase";
+import { signIn, signInWithGoogle, signUp, signOut, onAuthChange, fetchUserRole } from "./auth";
 
 // Theme Context
 const ThemeContext = createContext();
 function useTheme() { return useContext(ThemeContext); }
+
+// Auth Context
+const AuthContext = createContext();
+function useAuth() { return useContext(AuthContext); }
 
 // Color Tokens
 const TOKENS = {
@@ -67,7 +73,6 @@ const JSON_TEMPLATE = `{
   "totalQuestions": 1,
   "positiveMarking": 1,
   "negativeMarking": 0.25,
-  "createdOn": "2026-03-06",
   "questions": [
     {
       "question": "Your question text here?",
@@ -85,8 +90,11 @@ const JSON_TEMPLATE = `{
 // ─── Navigation ──────────────────────────────────────────────────────────────
 function Nav({ page, setPage, testsCount }) {
   const { t, isDark, toggle } = useTheme();
+  const { user, role, handleSignOut } = useAuth();
   const styles = getStyles(t);
   const isMobile = useIsMobile();
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  
   return (
     <nav style={styles.nav}>
       <div style={styles.navBrand} onClick={() => setPage("dashboard")}>
@@ -101,12 +109,20 @@ function Nav({ page, setPage, testsCount }) {
           {isMobile ? "🏠" : "Dashboard"}
           {!isMobile && <span style={styles.navBadge}>{testsCount}</span>}
         </button>
-        <button
+        {/* <button
           style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? styles.navBtnMobile : {}) }}
           onClick={() => setPage("create")}
         >
           {isMobile ? "+" : "+ New Test"}
-        </button>
+        </button> */}
+        {role === "admin" && (
+          <button
+            style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? styles.navBtnMobile : {}) }}
+            onClick={() => setPage("create")}
+          >
+            {isMobile ? "+" : "+ New Test"}
+          </button>
+        )}
         <button
           onClick={toggle}
           title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
@@ -126,15 +142,165 @@ function Nav({ page, setPage, testsCount }) {
           {isDark ? "☀️" : "🌙"}
           {!isMobile && (isDark ? " Light" : " Dark")}
         </button>
+
+        {/* User menu */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowUserMenu(m => !m)}
+            style={{
+              background: t.bgHover, border: `1px solid ${t.borderMid}`,
+              borderRadius: "8px", padding: "6px 12px", cursor: "pointer",
+              color: t.text3, fontFamily: "inherit", fontSize: "13px",
+              display: "flex", alignItems: "center", gap: "8px",
+            }}
+          >
+            <span style={{ width: "24px", height: "24px", borderRadius: "50%", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", color: "white", fontWeight: "700" }}>
+              {user?.email?.[0]?.toUpperCase() || "U"}
+            </span>
+            {!isMobile && (
+              <span style={{ maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {user?.email}
+              </span>
+            )}
+            {role === "admin" && (
+              <span style={{ fontSize: "10px", background: "#6366f120", color: "#6366f1", border: "1px solid #6366f140", borderRadius: "4px", padding: "1px 6px", fontWeight: "700" }}>
+                ADMIN
+              </span>
+            )}
+          </button>
+ 
+          {showUserMenu && (
+            <div style={{
+              position: "absolute", right: 0, top: "calc(100% + 8px)",
+              background: t.bgCard, border: `1px solid ${t.border}`,
+              borderRadius: "10px", padding: "8px", minWidth: "180px",
+              zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+            }}>
+              <div style={{ padding: "8px 12px", borderBottom: `1px solid ${t.border}`, marginBottom: "6px" }}>
+                <div style={{ fontSize: "12px", fontWeight: "700", color: t.text1 }}>{user?.user_metadata?.full_name || "User"}</div>
+                <div style={{ fontSize: "11px", color: t.text4 }}>{user?.email}</div>
+                <div style={{ fontSize: "10px", color: "#6366f1", fontWeight: "700", marginTop: "4px", textTransform: "uppercase" }}>{role}</div>
+              </div>
+              <button
+                onClick={() => { setShowUserMenu(false); handleSignOut(); }}
+                style={{ width: "100%", padding: "8px 12px", background: "transparent", border: "none", color: "#f87171", cursor: "pointer", fontFamily: "inherit", fontSize: "13px", textAlign: "left", borderRadius: "6px" }}
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );
 }
 
-// ─── Dashboard ───────────────────────────────────────────────────────────────
-function Dashboard({ tests, onStart, onDelete, loading, error }) {
+// ─── Attempt History ─────────────────────────────────────────────────────────
+function AttemptHistory({ attempts }) {
   const { t } = useTheme();
   const styles = getStyles(t);
+  const isMobile = useIsMobile();
+  const [expanded, setExpanded] = useState(false);
+  const PREVIEW = 5;
+  const shown = expanded ? attempts : attempts.slice(0, PREVIEW);
+ 
+  return (
+    <div style={{ marginTop: "48px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+        <div>
+          <h2 style={{ ...styles.dashTitle, fontSize: "22px", margin: 0 }}>My Attempt History</h2>
+          <p style={{ ...styles.dashSub, margin: "4px 0 0" }}>{attempts.length} attempt{attempts.length !== 1 ? "s" : ""} recorded</p>
+        </div>
+        {attempts.length > PREVIEW && (
+          <button
+            onClick={() => setExpanded(e => !e)}
+            style={{ background: "none", border: `1px solid ${t.borderMid}`, borderRadius: "8px", padding: "6px 14px", color: t.text3, cursor: "pointer", fontFamily: "inherit", fontSize: "12px" }}
+          >
+            {expanded ? "Show less ▲" : `Show all ${attempts.length} ▼`}
+          </button>
+        )}
+      </div>
+ 
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        {shown.map((a, i) => {
+          const date = new Date(a.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+          const time = new Date(a.submittedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+          return (
+            <div key={a.id} style={{
+              background: t.bgCard,
+              border: `1px solid ${a.passed ? "#4ade8030" : "#f8717130"}`,
+              borderLeft: `3px solid ${a.passed ? "#4ade80" : "#f87171"}`,
+              borderRadius: "10px",
+              padding: isMobile ? "14px 16px" : "16px 24px",
+              display: "flex", alignItems: "center",
+              gap: isMobile ? "12px" : "24px",
+              flexWrap: isMobile ? "wrap" : "nowrap",
+            }}>
+              {/* Score pill */}
+              <div style={{
+                minWidth: "56px", height: "56px", borderRadius: "50%",
+                background: a.passed ? "#4ade8015" : "#f8717115",
+                border: `2px solid ${a.passed ? "#4ade8060" : "#f8717160"}`,
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                flexShrink: 0,
+              }}>
+                <span style={{ fontSize: "15px", fontWeight: "800", color: a.passed ? "#4ade80" : "#f87171", fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>
+                  {a.pct}%
+                </span>
+                <span style={{ fontSize: "9px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {a.passed ? "Pass" : "Fail"}
+                </span>
+              </div>
+ 
+              {/* Quiz name + date */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "14px", fontWeight: "700", color: t.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {a.quizTitle}
+                </div>
+                <div style={{ fontSize: "12px", color: t.text4, marginTop: "3px" }}>
+                  {a.quizSubject && <span style={{ marginRight: "10px" }}>{a.quizSubject}</span>}
+                  {date} · {time}
+                </div>
+              </div>
+ 
+              {/* Stats row */}
+              <div style={{ display: "flex", gap: isMobile ? "12px" : "20px", flexShrink: 0, flexWrap: "wrap" }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "16px", fontWeight: "800", color: "#4ade80", fontFamily: "'IBM Plex Mono', monospace" }}>{a.correct}</div>
+                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Correct</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "16px", fontWeight: "800", color: "#f87171", fontFamily: "'IBM Plex Mono', monospace" }}>{a.incorrect}</div>
+                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Wrong</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "16px", fontWeight: "800", color: t.text3, fontFamily: "'IBM Plex Mono', monospace" }}>{a.unanswered}</div>
+                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Skipped</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "16px", fontWeight: "800", color: "#6366f1", fontFamily: "'IBM Plex Mono', monospace" }}>{formatTime(a.timeTaken)}</div>
+                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Time</div>
+                </div>
+                {a.tabSwitches > 0 && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "16px", fontWeight: "800", color: "#facc15", fontFamily: "'IBM Plex Mono', monospace" }}>{a.tabSwitches}</div>
+                    <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Switches</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+function Dashboard({ tests, attempts = [], onStart, onDelete, loading, error }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
+
   return (
     <div style={styles.page}>
       <div style={styles.dashHeader}>
@@ -174,14 +340,33 @@ function Dashboard({ tests, onStart, onDelete, loading, error }) {
           ))}
         </div>
       )}
+
+      {attempts.length > 0 && (
+        <AttemptHistory attempts={attempts} />
+      )}
+
     </div>
   );
 }
 
 function TestCard({ test, onStart, onDelete }) {
   const { t } = useTheme();
+  const { role } = useAuth();
   const styles = getStyles(t);
   const [hovered, setHovered] = useState(false);
+  const [attempts, setAttempts] = useState(null);   // null=loading, []=none
+  const [showHistory, setShowHistory] = useState(false);
+
+  useEffect(() => {
+    fetchQuizAttempts(test.id)
+      .then(setAttempts)
+      .catch(() => setAttempts([]));
+  }, [test.id]);
+ 
+  const best = attempts?.length
+    ? attempts.reduce((b, a) => (a.score > b.score ? a : b), attempts[0])
+    : null;
+  
   return (
     <div
       style={{ ...styles.card, ...(hovered ? styles.cardHover : {}) }}
@@ -191,18 +376,78 @@ function TestCard({ test, onStart, onDelete }) {
       <div style={styles.cardTop}>
         <span style={styles.cardSubject}>{test.subject}</span>
         {/* <span style={styles.cardSubject}>{test.topic}</span> */}
+        {attempts !== null && attempts.length > 0 && (
+          <span style={{ fontSize: "11px", color: "#4ade80", background: "#4ade8015", border: "1px solid #4ade8030", borderRadius: "4px", padding: "2px 8px", fontWeight: "600" }}>
+            {attempts.length} attempt{attempts.length !== 1 ? "s" : ""}
+          </span>
+        )}
       </div>
+
       <h2 style={styles.cardTitle}>{test.title}</h2>
       <div style={styles.cardMeta}>
         <span style={styles.metaItem}>⏱ {Math.floor(test.duration / 60)} min</span>
         <span style={styles.metaItem}>❓ {test.totalQuestions || test.questions.length} questions</span>
         <span style={styles.metaItem}>📅 {test.createdOn}</span>
       </div>
+
+      {/* Best score strip */}
+      {best && (
+        <div style={{ display: "flex", gap: "16px", padding: "10px 14px", background: t.bgDeep, borderRadius: "8px", marginBottom: "12px", alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" }}>Best Score</span>
+            <span style={{ fontSize: "16px", fontWeight: "800", color: (best.score / best.total) >= 0.6 ? "#4ade80" : "#f87171", fontFamily: "'IBM Plex Mono', monospace" }}>
+              {best.score}/{best.total}
+            </span>
+          </div>
+          <div style={{ width: "1px", background: t.border, alignSelf: "stretch" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" }}>Last Attempt</span>
+            <span style={{ fontSize: "12px", color: t.text3 }}>
+              {new Date(attempts[0].submitted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+            </span>
+          </div>
+          <button
+            onClick={() => setShowHistory(h => !h)}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${t.borderMid}`, borderRadius: "6px", padding: "4px 10px", cursor: "pointer", color: t.text4, fontSize: "11px", fontFamily: "inherit" }}
+          >
+            {showHistory ? "Hide" : "History"}
+          </button>
+        </div>
+      )}
+ 
+      {/* Attempt history list */}
+      {showHistory && attempts?.length > 0 && (
+        <div style={{ marginBottom: "12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "180px", overflowY: "auto" }}>
+          {attempts.map((a, i) => {
+            const pct = Math.round((a.score / a.total) * 100);
+            const passed = pct >= 60;
+            return (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 12px", background: t.bgDeep, borderRadius: "6px", fontSize: "12px" }}>
+                <span style={{ color: t.text4, width: "20px", flexShrink: 0 }}>#{attempts.length - i}</span>
+                <span style={{ fontWeight: "700", color: passed ? "#4ade80" : "#f87171", fontFamily: "'IBM Plex Mono', monospace", minWidth: "52px" }}>
+                  {a.score}/{a.total}
+                </span>
+                <span style={{ color: t.text4, flex: 1 }}>
+                  {a.correct}✓ {a.incorrect}✗ {a.unanswered}—
+                </span>
+                <span style={{ color: t.text4 }}>⏱ {formatTime(a.time_taken)}</span>
+                <span style={{ color: t.text4 }}>
+                  {new Date(a.submitted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div style={styles.cardActions}>
         <button style={styles.startBtn} onClick={() => onStart(test)}>
-          Start Test →
+          {attempts?.length ? "Retake Test →" : "Start Test →"}
         </button>
-        <button style={styles.deleteBtn} onClick={() => onDelete(test.id)}>🗑</button>
+        {/* <button style={styles.deleteBtn} onClick={() => onDelete(test.id)}>🗑</button> */}
+        {role === "admin" && (
+          <button style={styles.deleteBtn} onClick={() => onDelete(test.id)}>🗑</button>
+        )}
       </div>
     </div>
   );
@@ -277,7 +522,7 @@ function CreateTest({ onCreate }) {
         ...savedQuiz,
         positiveMarking: savedQuiz.positive_marking ?? data.positiveMarking ?? 1,
         negativeMarking: savedQuiz.negative_marking ?? data.negativeMarking ?? 0,
-        createdOn: savedQuiz.created_on ?? new Date().toISOString().split("T")[0],
+        createdOn: new Date().toISOString().split("T")[0],
         totalQuestions: data.questions.length,
         questions: data.questions,
       };
@@ -413,7 +658,7 @@ function SchemaReference() {
 // }
 
 // ─── Test Interface ───────────────────────────────────────────────────────────
-function TestInterface({ test, onFinish, onBack }) {
+function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
   const { t } = useTheme();
   const styles = getStyles(t);
   // Shuffle once on mount, never again
@@ -544,7 +789,10 @@ function TestInterface({ test, onFinish, onBack }) {
         test={shuffledTest}
         answers={answers}
         timeTaken={shuffledTest.duration - timeLeft}
+        flagged={flagged}
+        tabSwitches={tabWarnings}
         onBack={onBack}
+        onAttemptSaved={onAttemptSaved}
       />
     );
   }
@@ -553,7 +801,7 @@ function TestInterface({ test, onFinish, onBack }) {
   const totalQ = shuffledTest.questions.length;
   const answered = Object.keys(answers).filter(k => answers[k] !== null).length;
   const pct = Math.round((timeLeft / shuffledTest.duration) * 100);
-  const timerDanger = timeLeft < 60;
+  const timerDanger = timeLeft < 300;
 
   return (
     <div
@@ -781,10 +1029,12 @@ function TestInterface({ test, onFinish, onBack }) {
 }
 
 // ─── Results ──────────────────────────────────────────────────────────────────
-function Results({ test, answers, timeTaken, onBack }) {
+function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onAttemptSaved }) {
   const { t } = useTheme();
+  const { user } = useAuth();
   const styles = getStyles(t);
   const [expandedIdx, setExpandedIdx] = useState(null);
+  const [saveStatus, setSaveStatus] = useState("saving"); // "saving" | "saved" | "error"
   const isMobile = useIsMobile();
 
   let correctquetions = 0;
@@ -792,19 +1042,8 @@ function Results({ test, answers, timeTaken, onBack }) {
   let unansweredquestions = 0;
 
   const score = test.questions.reduce((acc, q, i) => {
-    // unanswered
-    if (!answers[i]) {
-      ++unansweredquestions;
-      return acc; 
-    }
-
-    // correct answer
-    if (answers[i] === q.answer) {
-      ++correctquetions;
-      return acc + test.positiveMarking;
-    } 
-
-    // incorrect answer
+    if (!answers[i]) { ++unansweredquestions; return acc; }
+    if (answers[i] === q.answer) { ++correctquetions; return acc + test.positiveMarking; }
     ++wrongquestions;
     return acc - test.negativeMarking;
   }, 0);
@@ -813,11 +1052,32 @@ function Results({ test, answers, timeTaken, onBack }) {
   const pct = Math.round((score / total) * 100);
   const passed = pct >= 60;
 
+  // ── Save attempt once on mount ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) { setSaveStatus("error"); return; }
+    saveAttempt({
+      quizId:      test.id,
+      userId:      user.id,
+      questions:   test.questions,
+      answers,
+      flagged:     flagged ?? new Set(),
+      score,
+      correct:     correctquetions,
+      incorrect:   wrongquestions,
+      unanswered:  unansweredquestions,
+      timeTaken,
+      tabSwitches: tabSwitches ?? 0,
+    })
+      .then(() => { setSaveStatus("saved"); onAttemptSaved?.(); })
+      .catch(() => setSaveStatus("error"));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div style={{ ...styles.resultsWrap, ...(isMobile ? styles.resultsWrapMobile : {}) }}>
       <div style={{ ...styles.resultsSummary, ...(isMobile ? styles.resultsSummaryMobile : {}) }}>
         <div style={styles.scoreCircleWrap}>
-          <svg width={isMobile ? "100" : "140"} height={isMobile ? "100" : "140"} viewBox="0 0 140 140">
+          <svg width={isMobile ? "120" : "180"} height={isMobile ? "120" : "180"} viewBox="0 0 140 140">
             <circle cx="70" cy="70" r="58" fill="none" stroke="#1e293b" strokeWidth="10" />
             <circle
               cx="70" cy="70" r="58"
@@ -839,6 +1099,26 @@ function Results({ test, answers, timeTaken, onBack }) {
         <div style={styles.summaryInfo}>
           <h1 style={{ ...styles.resultsTitle, ...(isMobile ? { fontSize: "20px" } : {}) }}>{passed ? "Well done! 🎉" : "Keep practicing 💪"}</h1>
           <p style={styles.resultsSub}>{test.title}</p>
+
+          <div style={{ marginBottom: "16px" }}>
+            {saveStatus === "saving" && (
+              <span style={{ fontSize: "12px", color: t.text4, display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ width: "10px", height: "10px", borderRadius: "50%", border: "2px solid #6366f1", borderTop: "2px solid transparent", display: "inline-block", animation: "spin 0.8s linear infinite" }} />
+                Saving result…
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span style={{ fontSize: "12px", color: "#4ade80", display: "flex", alignItems: "center", gap: "6px" }}>
+                ✓ Result saved
+              </span>
+            )}
+            {saveStatus === "error" && (
+              <span style={{ fontSize: "12px", color: "#f87171", display: "flex", alignItems: "center", gap: "6px" }}>
+                ⚠ Could not save result
+              </span>
+            )}
+          </div>
+
           <div style={{ ...styles.summaryStats, ...(isMobile ? styles.summaryStatsMobile : {}) }}>
             <StatBox label="Correct" value={correctquetions} color="#4ade80" isMobile={isMobile} />
             <StatBox label="Incorrect" value={wrongquestions} color="#f87171" isMobile={isMobile} />
@@ -916,15 +1196,225 @@ function StatBox({ label, value, color, isMobile }) {
   );
 }
 
+// ─── Login Page ───────────────────────────────────────────────────────────────
+function LoginPage({ onSwitch }) {
+  const { t } = useTheme();
+  const s = getStyles(t);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+ 
+  async function handleLogin(e) {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      await signIn({ email, password });
+    } catch (err) {
+      setError(err.message);
+    } finally { setLoading(false); }
+  }
+ 
+  async function handleGoogle() {
+    setError("");
+    try { await signInWithGoogle(); }
+    catch (err) { setError(err.message); }
+  }
+ 
+  return (
+    <div style={{ minHeight: "100vh", background: t.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <div style={{ width: "100%", maxWidth: "420px" }}>
+        <div style={{ textAlign: "center", marginBottom: "40px" }}>
+          <div style={{ ...s.navLogo, width: "48px", height: "48px", fontSize: "22px", margin: "0 auto 16px" }}>▲</div>
+          <h1 style={{ fontSize: "26px", fontWeight: "800", color: t.text1, margin: "0 0 8px" }}>EXAMFORGE</h1>
+          <p style={{ color: t.text4, fontSize: "14px", margin: 0 }}>Sign in to your account</p>
+        </div>
+ 
+        <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px", padding: "32px" }}>
+          <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: "600", color: t.text3, letterSpacing: "1px", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>Email</label>
+              <input
+                type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                placeholder="you@example.com"
+                style={{ ...s.authInput }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: "600", color: t.text3, letterSpacing: "1px", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>Password</label>
+              <input
+                type="password" value={password} onChange={e => setPassword(e.target.value)} required
+                placeholder="••••••••"
+                style={{ ...s.authInput }}
+              />
+            </div>
+ 
+            {error && <div style={s.errorBox}>⚠ {error}</div>}
+ 
+            <button type="submit" disabled={loading} style={{ ...s.createBtn, width: "100%", opacity: loading ? 0.7 : 1 }}>
+              {loading ? "Signing in…" : "Sign In →"}
+            </button>
+          </form>
+ 
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "20px 0" }}>
+            <div style={{ flex: 1, height: "1px", background: t.border }} />
+            <span style={{ fontSize: "12px", color: t.text4 }}>or</span>
+            <div style={{ flex: 1, height: "1px", background: t.border }} />
+          </div>
+ 
+          <button onClick={handleGoogle} style={{ ...s.authSocialBtn, width: "100%" }}>
+            <svg width="18" height="18" viewBox="0 0 48 48">
+              <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+              <path fill="#FF3D00" d="m6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"/>
+              <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+              <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+            </svg>
+            Continue with Google
+          </button>
+ 
+          <p style={{ textAlign: "center", fontSize: "13px", color: t.text4, marginTop: "24px" }}>
+            No account?{" "}
+            <button onClick={onSwitch} style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", fontWeight: "600", fontSize: "13px", fontFamily: "inherit" }}>
+              Sign up
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+ 
+// ─── Signup Page ──────────────────────────────────────────────────────────────
+function SignupPage({ onSwitch }) {
+  const { t } = useTheme();
+  const s = getStyles(t);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+ 
+  async function handleSignup(e) {
+    e.preventDefault();
+    setError("");
+    if (password !== confirm) { setError("Passwords do not match"); return; }
+    if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
+    setLoading(true);
+    try {
+      await signUp({ email, password, name });
+      setSuccess(true);
+    } catch (err) {
+      setError(err.message);
+    } finally { setLoading(false); }
+  }
+ 
+  async function handleGoogle() {
+    setError("");
+    try { await signInWithGoogle(); }
+    catch (err) { setError(err.message); }
+  }
+ 
+  if (success) {
+    return (
+      <div style={{ minHeight: "100vh", background: t.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+        <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px", padding: "48px 40px", maxWidth: "420px", textAlign: "center" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>📬</div>
+          <h2 style={{ color: t.text1, fontSize: "22px", fontWeight: "800", margin: "0 0 12px" }}>Check your email</h2>
+          <p style={{ color: t.text3, fontSize: "14px", lineHeight: 1.7, margin: "0 0 24px" }}>
+            We sent a confirmation link to <strong style={{ color: t.text1 }}>{email}</strong>. Click it to activate your account, then come back to sign in.
+          </p>
+          <button onClick={onSwitch} style={{ ...s.createBtn, width: "100%" }}>Back to Sign In</button>
+        </div>
+      </div>
+    );
+  }
+ 
+  return (
+    <div style={{ minHeight: "100vh", background: t.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <div style={{ width: "100%", maxWidth: "420px" }}>
+        <div style={{ textAlign: "center", marginBottom: "40px" }}>
+          <div style={{ ...s.navLogo, width: "48px", height: "48px", fontSize: "22px", margin: "0 auto 16px" }}>▲</div>
+          <h1 style={{ fontSize: "26px", fontWeight: "800", color: t.text1, margin: "0 0 8px" }}>EXAMFORGE</h1>
+          <p style={{ color: t.text4, fontSize: "14px", margin: 0 }}>Create your account</p>
+        </div>
+ 
+        <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px", padding: "32px" }}>
+          <form onSubmit={handleSignup} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: "600", color: t.text3, letterSpacing: "1px", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>Full Name</label>
+              <input
+                type="text" value={name} onChange={e => setName(e.target.value)} required
+                placeholder="Your name"
+                style={{ ...s.authInput }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: "600", color: t.text3, letterSpacing: "1px", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>Email</label>
+              <input
+                type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                placeholder="you@example.com"
+                style={{ ...s.authInput }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: "600", color: t.text3, letterSpacing: "1px", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>Password</label>
+              <input
+                type="password" value={password} onChange={e => setPassword(e.target.value)} required
+                placeholder="Min. 6 characters"
+                style={{ ...s.authInput }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: "600", color: t.text3, letterSpacing: "1px", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>Confirm Password</label>
+              <input
+                type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required
+                placeholder="••••••••"
+                style={{ ...s.authInput }}
+              />
+            </div>
+ 
+            {error && <div style={s.errorBox}>⚠ {error}</div>}
+ 
+            <button type="submit" disabled={loading} style={{ ...s.createBtn, width: "100%", opacity: loading ? 0.7 : 1 }}>
+              {loading ? "Creating account…" : "Create Account →"}
+            </button>
+          </form>
+ 
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "20px 0" }}>
+            <div style={{ flex: 1, height: "1px", background: t.border }} />
+            <span style={{ fontSize: "12px", color: t.text4 }}>or</span>
+            <div style={{ flex: 1, height: "1px", background: t.border }} />
+          </div>
+ 
+          <button onClick={handleGoogle} style={{ ...s.authSocialBtn, width: "100%" }}>
+            <svg width="18" height="18" viewBox="0 0 48 48">
+              <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+              <path fill="#FF3D00" d="m6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"/>
+              <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
+              <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+            </svg>
+            Continue with Google
+          </button>
+ 
+          <p style={{ textAlign: "center", fontSize: "13px", color: t.text4, marginTop: "24px" }}>
+            Already have an account?{" "}
+            <button onClick={onSwitch} style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", fontWeight: "600", fontSize: "13px", fontFamily: "inherit" }}>
+              Sign in
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function MockTestApp() {
-  const [tests, setTests] = useState([]);
-  const [page, setPage] = useState("dashboard");
-  const [activeTest, setActiveTest] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [dbError, setDbError] = useState("");
+  // ── Theme ──────────────────────────────────────────────────────────────────
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem("examforge-theme");
     if (saved) return saved === "dark";
@@ -936,12 +1426,67 @@ export default function MockTestApp() {
   });
   const t = isDark ? TOKENS.dark : TOKENS.light;
 
-  // ── Load all quizzes from Supabase on mount ────────────────────────────────
-  useEffect(() => {
-    loadTests();
-  }, []);
+  // ── Auth state ─────────────────────────────────────────────────────────────
+  const [user, setUser] = useState(undefined);   // undefined = loading, null = signed out
+  const [role, setRole] = useState(null);
+  const [authPage, setAuthPage] = useState("login");  // "login" | "signup"
+ 
+  // ── Quiz + Attempts state ─────────────────────────────────────────────────
+  const [tests, setTests] = useState([]);
+  const [attempts, setAttempts] = useState([]);
+  const [page, setPage] = useState("dashboard");
+  const [activeTest, setActiveTest] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [dbError, setDbError] = useState("");
 
-  async function loadTests() {
+  // Single source of truth: load everything inside onAuthStateChange.
+  // This fires on every page load (restoring the session from localStorage)
+  // and on login/logout. We never rely on a separate useEffect([user]) because
+  // that creates a race between setUser() and the data-fetch trigger.
+  useEffect(() => {
+    // Safety net: if auth hasn't resolved in 6s, stop spinning and show login.
+    // This prevents being stuck forever if Supabase is unreachable.
+    const timeout = setTimeout(() => {
+      setUser(prev => prev === undefined ? null : prev);
+    }, 6000);
+
+    const unsub = onAuthChange(async (session) => {
+      clearTimeout(timeout);
+      const u = session?.user ?? null;
+      setUser(u);
+ 
+      if (u) {
+        // Fetch role + data in parallel — all within this same callback,
+        // after Supabase has confirmed the session is valid
+        const [r] = await Promise.all([
+          fetchUserRole(u.id),
+          _loadTests(),
+          _loadAttempts(u.id),
+        ]);
+        setRole(r);
+      } else {
+        // Signed out — clear everything
+        setRole(null);
+        setTests([]);
+        setAttempts([]);
+      }
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+ 
+  async function handleSignOut() {
+    try {
+      await signOut();
+      setPage("dashboard");
+      // onAuthChange will fire with null session and clear state automatically
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+ 
+  // Private helpers — can be called with or without user in scope
+  async function _loadTests() {
     setLoading(true);
     setDbError("");
     try {
@@ -953,6 +1498,18 @@ export default function MockTestApp() {
       setLoading(false);
     }
   }
+ 
+  async function _loadAttempts(userId) {
+    if (!userId) return;
+    try {
+      const data = await fetchMyAttempts(userId);
+      setAttempts(data);
+    } catch (_) { /* non-critical */ }
+  }
+ 
+  // Public refresh functions for post-action updates
+  // function loadTests() { _loadTests(); }
+  function loadAttempts() { if (user) _loadAttempts(user.id); }
 
   // ── When a new quiz is created, add it to local state instantly ────────────
   function handleCreate(test) {
@@ -985,38 +1542,76 @@ export default function MockTestApp() {
     setPage("dashboard");
   }
 
+  // ── Context values ─────────────────────────────────────────────────────────
   const themeValue = { t, isDark, toggle: toggleTheme };
-
-  if (page === "test" && activeTest) {
-    return (
-      <ThemeContext.Provider value={themeValue}>
+  const authValue  = { user, role, handleSignOut };
+ 
+  const appShell = (children) => (
+    <ThemeContext.Provider value={themeValue}>
+      <AuthContext.Provider value={authValue}>
         <div style={{ minHeight: "100vh", background: t.bg, color: t.text2, fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
-          <TestInterface test={activeTest} onBack={handleBack} />
+          {children}
         </div>
-      </ThemeContext.Provider>
+      </AuthContext.Provider>
+    </ThemeContext.Provider>
+  );
+ 
+  // ── Loading auth state ─────────────────────────────────────────────────────
+  if (user === undefined) {
+    return appShell(
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", flexDirection: "column", gap: "20px" }}>
+        <div style={{ width: "40px", height: "40px", borderRadius: "50%", border: "3px solid #1e293b", borderTop: "3px solid #6366f1", animation: "spin 0.8s linear infinite" }} />
+        <span style={{ color: "#64748b", fontSize: "14px" }}>Loading…</span>
+      </div>
+    );
+  }
+ 
+  // ── Not authenticated — show login / signup ────────────────────────────────
+  if (!user) {
+    return appShell(
+      authPage === "login"
+        ? <LoginPage  onSwitch={() => setAuthPage("signup")} />
+        : <SignupPage onSwitch={() => setAuthPage("login")}  />
+    );
+  }
+ 
+  // ── Authenticated — show app ───────────────────────────────────────────────
+  if (page === "test" && activeTest) {
+    return appShell(
+      <TestInterface
+        test={activeTest}
+        onBack={handleBack}
+        onAttemptSaved={() => loadAttempts()}
+      />
     );
   }
 
-  return (
-    <ThemeContext.Provider value={themeValue}>
-      <div style={{ minHeight: "100vh", background: t.bg, color: t.text2, fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
-        <Nav page={page} setPage={setPage} testsCount={tests.length} />
+  return appShell(
+    <>
+      <Nav page={page} setPage={setPage} testsCount={tests.length} />
         <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" }}>
           {page === "dashboard" && (
             <Dashboard
               tests={tests}
+              attempts={attempts}
               onStart={handleStart}
               onDelete={handleDelete}
               loading={loading}
               error={dbError}
             />
           )}
-          {page === "create" && (
+          {page === "create" && role === "admin" && (
             <CreateTest onCreate={test => { handleCreate(test); setPage("dashboard"); }} />
           )}
+          {page === "create" && role !== "admin" && (
+          <div style={{ textAlign: "center", padding: "80px 20px" }}>
+            <div style={{ fontSize: "48px", marginBottom: "16px" }}>🔒</div>
+            <h2 style={{ color: t.text1, fontSize: "20px", fontWeight: "800" }}>Admin Only</h2>
+            <p style={{ color: t.text4 }}>Only admins can create tests.</p>
+          </div>
+        )}
         </main>
-      </div>
-    </ThemeContext.Provider>
+    </>
   );
 }
 
@@ -1026,36 +1621,36 @@ export default function MockTestApp() {
 function getStyles(t) { 
   return {
     root: {
-        minHeight: "100vh",
-        background: t.bg,
-        color: t.text2,
-        fontFamily: "'IBM Plex Mono', 'Courier New', monospace"
+      minHeight: "100vh",
+      background: t.bg,
+      color: t.text2,
+      fontFamily: "'IBM Plex Mono', 'Courier New', monospace"
     },
     // NAV
     nav: {
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
-        background: t.bgCard, borderBottom: `1px solid ${t.border}`,
-        position: "sticky", top: 0, zIndex: 100
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
+      background: t.bgCard, borderBottom: `1px solid ${t.border}`,
+      position: "sticky", top: 0, zIndex: 100
     },
     navBrand: { display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" },
     navLogo: {
-        width: "32px", height: "32px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: "16px", borderRadius: "6px", fontWeight: "bold"
+      width: "32px", height: "32px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: "16px", borderRadius: "6px", fontWeight: "bold"
     },
     navTitle: { fontSize: "16px", fontWeight: "700", letterSpacing: "4px", color: t.text1 },
     navLinks: { display: "flex", gap: "8px" },
     navBtn: {
-        padding: "8px 20px", borderRadius: "6px", border: `1px solid ${t.border}`,
-        background: "transparent", color: t.text3, cursor: "pointer",
-        fontSize: "13px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
-        transition: "all 0.2s"
+      padding: "8px 20px", borderRadius: "6px", border: `1px solid ${t.border}`,
+      background: "transparent", color: t.text3, cursor: "pointer",
+      fontSize: "13px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
+      transition: "all 0.2s"
     },
     navBtnActive: { background: t.bgHover, color: t.text2, borderColor: "#334155" },
     navBadge: {
-        background: "#6366f1", color: "white", borderRadius: "10px",
-        padding: "1px 8px", fontSize: "11px", fontWeight: "bold"
+      background: "#6366f1", color: "white", borderRadius: "10px",
+      padding: "1px 8px", fontSize: "11px", fontWeight: "bold"
     },
     // MAIN
     main: { maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" },
@@ -1066,8 +1661,8 @@ function getStyles(t) {
     dashSub: { color: t.text4, marginTop: "6px", fontSize: "14px" },
     cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: "16px" },
     card: {
-        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
-        padding: "24px", transition: "all 0.2s", cursor: "default"
+      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
+      padding: "24px", transition: "all 0.2s", cursor: "default"
     },
     cardHover: { border: `1px solid ${t.borderMid}`, transform: "translateY(-2px)", boxShadow: "0 8px 32px #6366f120" },
     cardTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" },
@@ -1078,13 +1673,13 @@ function getStyles(t) {
     metaItem: { fontSize: "12px", color: t.text4 },
     cardActions: { display: "flex", gap: "10px", alignItems: "center" },
     startBtn: {
-        flex: 1, padding: "10px 20px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
+      flex: 1, padding: "10px 20px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
     },
     deleteBtn: {
-        padding: "10px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-        borderRadius: "8px", cursor: "pointer", fontSize: "14px"
+      padding: "10px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+      borderRadius: "8px", cursor: "pointer", fontSize: "14px"
     },
     emptyState: { textAlign: "center", padding: "80px 20px" },
     emptyIcon: { fontSize: "64px", marginBottom: "20px" },
@@ -1096,32 +1691,32 @@ function getStyles(t) {
     editorHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
     editorLabel: { fontSize: "13px", fontWeight: "600", color: t.text3, letterSpacing: "1px" },
     resetBtn: {
-        padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
-        color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
+      padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
+      color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
     },
     textarea: {
-        width: "100%", minHeight: "460px", padding: "20px",
-        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "10px",
-        color: t.code, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
-        lineHeight: 1.7, resize: "vertical", outline: "none", boxSizing: "border-box"
+      width: "100%", minHeight: "460px", padding: "20px",
+      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "10px",
+      color: t.code, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
+      lineHeight: 1.7, resize: "vertical", outline: "none", boxSizing: "border-box"
     },
     errorBox: {
-        background: "#f8717115", border: "1px solid #f8717140", borderRadius: "8px",
-        padding: "12px 16px", color: "#f87171", fontSize: "13px"
+      background: "#f8717115", border: "1px solid #f8717140", borderRadius: "8px",
+      padding: "12px 16px", color: "#f87171", fontSize: "13px"
     },
     successBox: {
-        background: "#4ade8015", border: "1px solid #4ade8040", borderRadius: "8px",
-        padding: "12px 16px", color: "#4ade80", fontSize: "13px"
+      background: "#4ade8015", border: "1px solid #4ade8040", borderRadius: "8px",
+      padding: "12px 16px", color: "#4ade80", fontSize: "13px"
     },
     createBtn: {
-        padding: "14px 28px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        color: "white", border: "none", borderRadius: "10px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "700", fontSize: "14px", letterSpacing: "0.5px"
+      padding: "14px 28px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+      color: "white", border: "none", borderRadius: "10px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "700", fontSize: "14px", letterSpacing: "0.5px"
     },
     schemaPanel: {
-        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
-        padding: "24px", display: "flex", flexDirection: "column", gap: "12px",
-        alignSelf: "start", position: "sticky", top: "80px"
+      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
+      padding: "24px", display: "flex", flexDirection: "column", gap: "12px",
+      alignSelf: "start", position: "sticky", top: "80px"
     },
     schemaTitle: { fontSize: "13px", fontWeight: "600", color: t.text3, margin: "0 0 8px", letterSpacing: "1px", textTransform: "uppercase" },
     schemaRow: { display: "flex", flexDirection: "column", gap: "3px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
@@ -1133,14 +1728,14 @@ function getStyles(t) {
     // TEST
     testWrap: { minHeight: "100vh", background: t.bg, display: "flex", flexDirection: "column", touchAction: "manipulation" },
     timerBar: {
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 32px", background: t.bgCard, borderBottom: `1px solid ${t.border}`
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "12px 32px", background: t.bgCard, borderBottom: `1px solid ${t.border}`
     },
     timerLeft: {},
     testTitleSmall: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
     timerDisplay: {
-        display: "flex", alignItems: "center", gap: "8px",
-        background: t.bgHover, padding: "8px 20px", borderRadius: "8px"
+      display: "flex", alignItems: "center", gap: "8px",
+      background: t.bgHover, padding: "8px 20px", borderRadius: "8px"
     },
     timerDanger: { background: "#f8717120", animation: "pulse 1s infinite" },
     timerIcon: { fontSize: "16px" },
@@ -1152,15 +1747,15 @@ function getStyles(t) {
     testBody: { display: "flex", flex: 1 },
     // SIDEBAR
     sidebar: {
-        width: "220px", background: t.bgCard, borderRight: `1px solid ${t.border}`,
-        padding: "24px 16px", display: "flex", flexDirection: "column", gap: "16px"
+      width: "220px", background: t.bgCard, borderRight: `1px solid ${t.border}`,
+      padding: "24px 16px", display: "flex", flexDirection: "column", gap: "16px"
     },
     sidebarLabel: { fontSize: "11px", fontWeight: "600", color: t.text4, letterSpacing: "2px", textTransform: "uppercase", margin: 0 },
     qGrid: { display: "flex", flexWrap: "wrap", gap: "6px" },
     qDot: {
-        width: "36px", height: "36px", borderRadius: "8px",
-        background: t.bgHover, border: `1px solid ${t.borderMid}`, color: t.text3,
-        cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit"
+      width: "36px", height: "36px", borderRadius: "8px",
+      background: t.bgHover, border: `1px solid ${t.borderMid}`, color: t.text3,
+      cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit"
     },
     qDotCurrent: { background: "#6366f1", border: "1px solid #6366f1", color: "white" },
     qDotAnswered: { background: "#4ade8020", border: "1px solid #4ade8060", color: "#4ade80" },
@@ -1169,64 +1764,64 @@ function getStyles(t) {
     legendItem: { fontSize: "11px", color: t.text4, display: "flex", alignItems: "center", gap: "6px" },
     legendDot: { width: "10px", height: "10px", borderRadius: "50%", display: "inline-block" },
     submitSideBtn: {
-        marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+      marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
     },
     // QUESTION AREA
     questionArea: { flex: 1, padding: "40px 48px", maxWidth: "800px" },
     questionMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
     questionNum: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
     flagBtn: {
-        padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
-        color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
+      padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
+      color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
     },
     flagBtnActive: { border: "1px solid #facc1560", color: "#facc15", background: "#facc1510" },
     questionText: { fontSize: "22px", fontWeight: "600", color: t.text1, lineHeight: 1.5, marginBottom: "32px" },
     optionsList: { display: "flex", flexDirection: "column", gap: "12px", marginBottom: "40px" },
     optionBtn: {
-        display: "flex", alignItems: "center", gap: "16px",
-        padding: "16px 20px", background: t.bgCard, border: `2px solid ${t.border}`,
-        borderRadius: "10px", cursor: "pointer", color: t.text2,
-        textAlign: "left", transition: "all 0.15s", fontFamily: "inherit",
-        width: "100%", pointerEvents: "auto", userSelect: "none", WebkitUserSelect: "none",
-        touchAction: "manipulation"
+      display: "flex", alignItems: "center", gap: "16px",
+      padding: "16px 20px", background: t.bgCard, border: `2px solid ${t.border}`,
+      borderRadius: "10px", cursor: "pointer", color: t.text2,
+      textAlign: "left", transition: "all 0.15s", fontFamily: "inherit",
+      width: "100%", pointerEvents: "auto", userSelect: "none", WebkitUserSelect: "none",
+      touchAction: "manipulation"
     },
     optionBtnSelected: { border: "2px solid #6366f1", background: "#6366f115" },
     optionLabel: {
-        width: "32px", height: "32px", background: t.bgHover, borderRadius: "6px",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: "13px", fontWeight: "700", color: t.text4, flexShrink: 0
+      width: "32px", height: "32px", background: t.bgHover, borderRadius: "6px",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: "13px", fontWeight: "700", color: t.text4, flexShrink: 0
     },
     optionLabelSelected: { background: "#6366f1", color: "white" },
     optionText: { fontSize: "15px" },
     navBtns: { display: "flex", gap: "12px" },
     navTestBtn: {
-        padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-        color: t.text3, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "13px"
+      padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+      color: t.text3, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "13px"
     },
     navTestBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
     navTestBtnPrimary: {
-        padding: "12px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+      padding: "12px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
     },
     navTestBtnSubmit: {
-        padding: "12px 24px", background: "linear-gradient(135deg, #4ade80, #22c55e)",
-        color: t.bg, border: "none", borderRadius: "8px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+      padding: "12px 24px", background: "linear-gradient(135deg, #4ade80, #22c55e)",
+      color: t.bg, border: "none", borderRadius: "8px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
     },
     // RESULTS
     resultsWrap: { maxWidth: "900px", margin: "0 auto", padding: "40px 32px" },
     resultsSummary: {
-        display: "flex", gap: "48px", alignItems: "center",
-        background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px",
-        padding: "40px", marginBottom: "48px"
+      display: "flex", gap: "48px", alignItems: "center",
+      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px",
+      padding: "40px", marginBottom: "48px"
     },
     scoreCircleWrap: { position: "relative", flexShrink: 0 },
     scoreInner: {
-        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center"
+      position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center"
     },
     scoreNum: { fontSize: "28px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
     scoreLabel: { fontSize: "13px", color: t.text4 },
@@ -1235,24 +1830,24 @@ function getStyles(t) {
     resultsSub: { color: t.text4, fontSize: "14px", marginBottom: "28px" },
     summaryStats: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "28px" },
     statBox: {
-        background: t.bg, border: `1px solid ${t.border}`, borderRadius: "10px",
-        padding: "16px", display: "flex", flexDirection: "column", gap: "4px"
+      background: t.bg, border: `1px solid ${t.border}`, borderRadius: "10px",
+      padding: "16px", display: "flex", flexDirection: "column", gap: "4px"
     },
     statValue: { fontSize: "22px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
     statLabel: { fontSize: "11px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" },
     backBtn: {
-        padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-        color: t.text2, borderRadius: "8px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
+      padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+      color: t.text2, borderRadius: "8px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
     },
     reviewTitle: { fontSize: "20px", fontWeight: "700", color: t.text1, marginBottom: "20px" },
     reviewList: { display: "flex", flexDirection: "column", gap: "12px" },
     reviewCard: {
-        background: t.bgCard, border: "1px solid", borderRadius: "10px", overflow: "hidden"
+      background: t.bgCard, border: "1px solid", borderRadius: "10px", overflow: "hidden"
     },
     reviewCardTop: {
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "16px 20px", cursor: "pointer"
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      padding: "16px 20px", cursor: "pointer"
     },
     reviewCardLeft: { display: "flex", alignItems: "center", gap: "12px", flex: 1 },
     reviewStatus: { fontSize: "18px", fontWeight: "800", width: "24px" },
@@ -1262,23 +1857,23 @@ function getStyles(t) {
     reviewDetail: { padding: "0 20px 20px", borderTop: `1px solid ${t.border}` },
     reviewOptions: { display: "flex", flexDirection: "column", gap: "8px", paddingTop: "16px" },
     reviewOpt: {
-        display: "flex", alignItems: "center", gap: "12px",
-        padding: "10px 14px", border: "1px solid", borderRadius: "8px", fontSize: "13px", color: t.text2
+      display: "flex", alignItems: "center", gap: "12px",
+      padding: "10px 14px", border: "1px solid", borderRadius: "8px", fontSize: "13px", color: t.text2
     },
     reviewOptLabel: {
-        width: "24px", height: "24px", background: t.bgHover, borderRadius: "4px",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: "11px", fontWeight: "700", flexShrink: 0
+      width: "24px", height: "24px", background: t.bgHover, borderRadius: "4px",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: "11px", fontWeight: "700", flexShrink: 0
     },
     correctTag: { marginLeft: "auto", fontSize: "11px", color: "#4ade80", fontWeight: "600" },
     wrongTag: { marginLeft: "auto", fontSize: "11px", color: "#f87171", fontWeight: "600" },
     explanation: {
-        marginTop: "16px", background: "#6366f110", border: "1px solid #6366f130",
-        borderRadius: "8px", padding: "16px"
+      marginTop: "16px", background: "#6366f110", border: "1px solid #6366f130",
+      borderRadius: "8px", padding: "16px"
     },
     explanationLabel: { fontSize: "12px", fontWeight: "700", color: "#6366f1", letterSpacing: "1px", display: "block", marginBottom: "8px" },
     explanationText: { fontSize: "13px", color: t.text3, lineHeight: 1.7, margin: 0 },
-
+  
     // ─── MOBILE / RESPONSIVE ────────────────────────────────────────────────────
     navBtnMobile: { padding: "8px 14px", fontSize: "16px" },
     createLayoutMobile: { gridTemplateColumns: "1fr" },
@@ -1289,106 +1884,119 @@ function getStyles(t) {
     optionBtnMobile: { padding: "14px 14px", gap: "12px" },
     navBtnsMobile: { position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px", background: t.bg, borderTop: `1px solid ${t.border}`, zIndex: 50 },
     qNavToggleBtn: {
-        padding: "6px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-        color: t.text3, borderRadius: "6px", cursor: "pointer", fontSize: "13px",
-        fontFamily: "inherit"
+      padding: "6px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+      color: t.text3, borderRadius: "6px", cursor: "pointer", fontSize: "13px",
+      fontFamily: "inherit"
     },
     submitTopBtn: {
-        padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
+      padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+      color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
     },
     mobileQNav: {
-        background: t.bgCard, borderBottom: `1px solid ${t.borderMid}`,
-        padding: "16px", display: "flex", flexDirection: "column", gap: "12px"
+      background: t.bgCard, borderBottom: `1px solid ${t.borderMid}`,
+      padding: "16px", display: "flex", flexDirection: "column", gap: "12px"
     },
     mobileQNavHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
     closeDrawerBtn: {
-        background: "transparent", border: "none", color: t.text3,
-        fontSize: "16px", cursor: "pointer", padding: "4px 8px"
+      background: "transparent", border: "none", color: t.text3,
+      fontSize: "16px", cursor: "pointer", padding: "4px 8px"
     },
     resultsWrapMobile: { padding: "16px" },
     resultsSummaryMobile: { flexDirection: "column", gap: "20px", padding: "24px", alignItems: "center", textAlign: "center" },
     summaryStatsMobile: { gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" },
     statBoxMobile: { padding: "12px" },
     reviewOptMobile: { flexWrap: "wrap", gap: "8px" },
-
+  
     // ─── ANTI-CHEAT ─────────────────────────────────────────────────────────────
     warningOverlay: {
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 9999, backdropFilter: "blur(6px)"
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 9999, backdropFilter: "blur(6px)"
     },
     warningBox: {
-        background: t.bgCard, border: "2px solid #f87171",
-        borderRadius: "16px", padding: "48px 40px", maxWidth: "420px",
-        textAlign: "center", display: "flex", flexDirection: "column",
-        alignItems: "center", gap: "16px", boxShadow: "0 0 60px #f8717140"
+      background: t.bgCard, border: "2px solid #f87171",
+      borderRadius: "16px", padding: "48px 40px", maxWidth: "420px",
+      textAlign: "center", display: "flex", flexDirection: "column",
+      alignItems: "center", gap: "16px", boxShadow: "0 0 60px #f8717140"
     },
     warningIcon: { fontSize: "48px" },
     warningTitle: { fontSize: "22px", fontWeight: "800", color: "#f87171", margin: 0 },
     warningDesc: { fontSize: "14px", color: t.text3, lineHeight: 1.6, margin: 0 },
     warningBtn: {
-        marginTop: "8px", padding: "12px 32px",
-        background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-        color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-        fontFamily: "inherit", fontWeight: "700", fontSize: "14px"
+      marginTop: "8px", padding: "12px 32px",
+      background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+      fontFamily: "inherit", fontWeight: "700", fontSize: "14px"
     },
     tabAlertBanner: {
-        background: "#facc1515", borderBottom: "1px solid #facc1540",
-        color: "#facc15", padding: "10px 20px", fontSize: "13px",
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        fontFamily: "inherit"
+      background: "#facc1515", borderBottom: "1px solid #facc1540",
+      color: "#facc15", padding: "10px 20px", fontSize: "13px",
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      fontFamily: "inherit"
     },
     tabAlertClose: {
-        background: "transparent", border: "none", color: "#facc15",
-        cursor: "pointer", fontSize: "14px", padding: "2px 6px", fontFamily: "inherit"
+      background: "transparent", border: "none", color: "#facc15",
+      cursor: "pointer", fontSize: "14px", padding: "2px 6px", fontFamily: "inherit"
     },
     copyBanner: {
-        position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)",
-        background: "#f8717120", border: "1px solid #f87171", borderRadius: "8px",
-        color: "#f87171", padding: "10px 20px", fontSize: "13px",
-        zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
+      position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)",
+      background: "#f8717120", border: "1px solid #f87171", borderRadius: "8px",
+      color: "#f87171", padding: "10px 20px", fontSize: "13px",
+      zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
     },
     warningChip: {
-        fontSize: "12px", color: "#facc15", background: "#facc1515",
-        border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
+      fontSize: "12px", color: "#facc15", background: "#facc1515",
+      border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
     },
     fsIndicator: {
-        fontSize: "12px", fontFamily: "inherit"
+      fontSize: "12px", fontFamily: "inherit"
     },
-
+  
     // ─── DB / LOADING ────────────────────────────────────────────────────────────
     loadingState: {
-        display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", padding: "80px 20px", gap: "20px"
+      display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", padding: "80px 20px", gap: "20px"
     },
     spinner: {
-        width: "40px", height: "40px", borderRadius: "50%",
-        border: `3px solid ${t.border}`, borderTop: "3px solid #6366f1",
-        animation: "spin 0.8s linear infinite"
+      width: "40px", height: "40px", borderRadius: "50%",
+      border: `3px solid ${t.border}`, borderTop: "3px solid #6366f1",
+      animation: "spin 0.8s linear infinite"
     },
     loadingText: { color: t.text4, fontSize: "14px" },
     dbErrorBox: {
-        background: "#f8717110", border: "1px solid #f8717140", borderRadius: "10px",
-        padding: "16px 20px", marginBottom: "24px", display: "flex", gap: "14px", alignItems: "flex-start"
+      background: "#f8717110", border: "1px solid #f8717140", borderRadius: "10px",
+      padding: "16px 20px", marginBottom: "24px", display: "flex", gap: "14px", alignItems: "flex-start"
     },
     dbErrorIcon: { fontSize: "20px", color: "#f87171", flexShrink: 0 },
     dbErrorMsg: { margin: "4px 0 0", fontSize: "13px", color: t.text3 },
     dbLog: {
-        background: t.bgDeep, border: `1px solid ${t.border}`, borderRadius: "8px",
-        padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px"
+      background: t.bgDeep, border: `1px solid ${t.border}`, borderRadius: "8px",
+      padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px"
     },
     dbLogLine: {
-        fontSize: "12px", color: t.text3, fontFamily: "'IBM Plex Mono', monospace",
-        display: "flex", gap: "8px", alignItems: "flex-start"
+      fontSize: "12px", color: t.text3, fontFamily: "'IBM Plex Mono', monospace",
+      display: "flex", gap: "8px", alignItems: "flex-start"
     },
     createBtnSaving: { opacity: 0.6, cursor: "not-allowed" },
     archRow: { display: "flex", flexDirection: "column", gap: "4px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
     archTable: {
-        fontSize: "12px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700",
-        border: "1px solid", borderRadius: "4px", padding: "2px 8px",
-        display: "inline-block", alignSelf: "flex-start"
+      fontSize: "12px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700",
+      border: "1px solid", borderRadius: "4px", padding: "2px 8px",
+      display: "inline-block", alignSelf: "flex-start"
+    },
+    // AUTH
+    authInput: {
+      width: "100%", padding: "12px 14px", background: t.bgDeep,
+      border: `1px solid ${t.border}`, borderRadius: "8px",
+      color: t.text1, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
+      outline: "none", boxSizing: "border-box",
+    },
+    authSocialBtn: {
+      display: "flex", alignItems: "center", justifyContent: "center", gap: "10px",
+      padding: "12px 16px", background: t.bgDeep, border: `1px solid ${t.borderMid}`,
+      borderRadius: "8px", cursor: "pointer", color: t.text2,
+      fontFamily: "inherit", fontSize: "13px", fontWeight: "600",
     },
   }; 
 }

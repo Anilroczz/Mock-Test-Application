@@ -58,6 +58,81 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // ═══════════════════════════════════════════════════════════════════════════════
 //
 //
+// ═══════════════════════════════════════════════════════════════════════════════
+// ATTEMPTS SCHEMA — run this SQL in your Supabase SQL editor
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// -- ATTEMPTS TABLE (one row per test submission)
+// create table attempts (
+//   id           uuid primary key default gen_random_uuid(),
+//   quiz_id      uuid not null references quizzes(id) on delete cascade,
+//   user_id      uuid not null references auth.users(id) on delete cascade,
+//   score        numeric(8,2) not null,
+//   total        integer not null,
+//   correct      integer not null default 0,
+//   incorrect    integer not null default 0,
+//   unanswered   integer not null default 0,
+//   time_taken   integer not null,       -- seconds used
+//   tab_switches integer not null default 0,
+//   submitted_at timestamptz default now()
+// );
+//
+// -- ATTEMPT_ANSWERS TABLE (one row per question per attempt)
+// create table attempt_answers (
+//   id              uuid primary key default gen_random_uuid(),
+//   attempt_id      uuid not null references attempts(id) on delete cascade,
+//   question_id     uuid not null references questions(id) on delete cascade,
+//   selected_answer text,                -- null = unanswered
+//   is_correct      boolean not null,
+//   is_flagged      boolean not null default false,
+//   position        integer not null     -- question number in the shuffled order
+// );
+//
+// -- Indexes for fast per-user and per-quiz queries
+// create index on attempts(user_id);
+// create index on attempts(quiz_id);
+// create index on attempt_answers(attempt_id);
+//
+// -- ROW LEVEL SECURITY
+// alter table attempts         enable row level security;
+// alter table attempt_answers  enable row level security;
+//
+// -- Users can only read/insert their own attempts
+// create policy "users read own attempts"
+//   on attempts for select using (user_id = auth.uid());
+//
+// create policy "users insert own attempts"
+//   on attempts for insert with check (user_id = auth.uid());
+//
+// -- attempt_answers are readable if the parent attempt belongs to the user
+// create policy "users read own attempt_answers"
+//   on attempt_answers for select
+//   using (
+//     exists (
+//       select 1 from attempts
+//       where attempts.id = attempt_answers.attempt_id
+//       and attempts.user_id = auth.uid()
+//     )
+//   );
+//
+// create policy "users insert own attempt_answers"
+//   on attempt_answers for insert
+//   with check (
+//     exists (
+//       select 1 from attempts
+//       where attempts.id = attempt_answers.attempt_id
+//       and attempts.user_id = auth.uid()
+//     )
+//   );
+//
+// -- Admins can read all attempts (for analytics)
+// create policy "admin read all attempts"
+//   on attempts for select
+//   using ((select role from profiles where id = auth.uid()) = 'admin');
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+//
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -66,12 +141,15 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
  * "Which of the following is correct?" with the same answer = same question (deduplicated).
  */
 function questionFingerprint({ question, answer }) {
-  return `${question.trim()}__${answer.trim()}`;
+  const q = (question || "").trim();
+  const a = (answer || "").trim();
+  if (!q || !a) throw new Error(`Cannot generate fingerprint — question or answer is empty. question="${q}" answer="${a}"`);
+  return `${q}__${a}`;
 }
 
 /**
- * Find-or-create a question by its text content.
- * Works without any unique index on the questions table.
+ * Find-or-create a question using question+answer as the identity fingerprint.
+ * Stores the fingerprint in a dedicated column for fast lookup.
  * Uses select-first to find an existing row, inserts only if missing.
  * Returns the question id.
  */
@@ -158,7 +236,7 @@ export async function saveQuiz(data) {
         options: q.options,
         answer: q.answer,
         explanation: q.explanation,
-        topic: data.topic || null,
+        topic: q.topic || data.topic || null,
         fingerprint: q.fingerprint
       });
       questionIds.push(id);
@@ -291,4 +369,140 @@ export async function deleteQuiz(quizId) {
     .eq("id", quizId);
 
   if (error) throw error;
+}
+//
+//
+// ─── Attempts API ─────────────────────────────────────────────────────────────
+//
+// 
+/**
+ * Save a completed attempt with all per-question answers.
+ *
+ * @param {object} params
+ *   quizId      - uuid of the quiz
+ *   userId      - uuid of the current user (auth.uid())
+ *   questions   - shuffled questions array from the test
+ *   answers     - { [positionIndex]: selectedOptionString | null }
+ *   flagged     - Set of position indexes the user flagged
+ *   score       - calculated score (after +/- marking)
+ *   correct     - count of correct answers
+ *   incorrect   - count of incorrect answers
+ *   unanswered  - count of unanswered questions
+ *   timeTaken   - seconds elapsed
+ *   tabSwitches - number of tab switches detected
+ */
+
+export async function saveAttempt({
+  quizId, userId, questions, answers, flagged,
+  score, correct, incorrect, unanswered, timeTaken, tabSwitches,
+}) {
+  // ── Step 1: insert the attempt row ────────────────────────────────────────
+  const { data: attempt, error: attemptErr } = await supabase
+    .from("attempts")
+    .insert({
+      quiz_id:      quizId,
+      user_id:      userId,
+      score,
+      total:        questions.length,
+      correct,
+      incorrect,
+      unanswered,
+      time_taken:   timeTaken,
+      tab_switches: tabSwitches ?? 0,
+    })
+    .select("id")
+    .single();
+ 
+  if (attemptErr) throw attemptErr;
+ 
+  // ── Step 2: batch insert one row per question ─────────────────────────────
+  const answerRows = questions.map((q, idx) => ({
+    attempt_id:      attempt.id,
+    question_id:     q.id,
+    selected_answer: answers[idx] ?? null,
+    is_correct:      answers[idx] === q.answer,
+    is_flagged:      flagged instanceof Set ? flagged.has(idx) : false,
+    position:        idx + 1,
+  }));
+ 
+  const { error: answersErr } = await supabase
+    .from("attempt_answers")
+    .insert(answerRows);
+ 
+  if (answersErr) {
+    // Rollback the attempt row so retries are clean
+    await supabase.from("attempts").delete().eq("id", attempt.id);
+    throw answersErr;
+  }
+ 
+  return attempt.id;
+}
+ 
+/**
+ * Fetch all attempts for the current user, joined with quiz title.
+ * Returns newest first.
+ */
+export async function fetchMyAttempts(userId) {
+  if (!userId) return [];
+ 
+  const { data, error } = await supabase
+    .from("attempts")
+    .select(`
+      id,
+      score,
+      total,
+      correct,
+      incorrect,
+      unanswered,
+      time_taken,
+      tab_switches,
+      submitted_at,
+      quizzes ( id, title, subject )
+    `)
+    .eq("user_id", userId)
+    .order("submitted_at", { ascending: false });
+ 
+  if (error) throw error;
+ 
+  return data.map(a => ({
+    id:          a.id,
+    score:       a.score,
+    total:       a.total,
+    correct:     a.correct,
+    incorrect:   a.incorrect,
+    unanswered:  a.unanswered,
+    timeTaken:   a.time_taken,
+    tabSwitches: a.tab_switches,
+    submittedAt: a.submitted_at,
+    quizId:      a.quizzes?.id,
+    quizTitle:   a.quizzes?.title,
+    quizSubject: a.quizzes?.subject,
+    pct:         Math.round((a.score / a.total) * 100),
+    passed:      Math.round((a.score / a.total) * 100) >= 60,
+  }));
+}
+ 
+/**
+ * Fetch all attempts across all users for a specific quiz.
+ * Admin only — protected by RLS policy.
+ */
+export async function fetchQuizAttempts(quizId) {
+  const { data, error } = await supabase
+    .from("attempts")
+    .select(`
+      id, score, total, correct, incorrect, unanswered,
+      time_taken, tab_switches, submitted_at,
+      profiles ( email )
+    `)
+    .eq("quiz_id", quizId)
+    .order("submitted_at", { ascending: false });
+ 
+  if (error) throw error;
+  return data.map(a => ({
+    ...a,
+    userEmail:  a.profiles?.email,
+    timeTaken:  a.time_taken,
+    pct:        Math.round((a.score / a.total) * 100),
+    passed:     Math.round((a.score / a.total) * 100) >= 60,
+  }));
 }
