@@ -91,114 +91,134 @@ const JSON_TEMPLATE = `{
 function Nav({ page, setPage, testsCount }) {
   const { t, isDark, toggle } = useTheme();
   const { user, role, handleSignOut } = useAuth();
-  const styles = getStyles(t);
   const isMobile = useIsMobile();
+  const styles = getStyles(t);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  
+  const menuRef = useRef(null);
+ 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!showUserMenu) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowUserMenu(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showUserMenu]);
+ 
+  const avatarLetter = user?.email?.[0]?.toUpperCase() || "U";
+ 
   return (
     <nav style={styles.nav}>
-      <div style={styles.navBrand} onClick={() => setPage("dashboard")}>
+      {/* Brand — hide text on mobile to save space */}
+      <div style={{ ...styles.navBrand, cursor: "pointer" }} onClick={() => setPage("dashboard")}>
         <div style={styles.navLogo}>▲</div>
+        {/* {!isMobile && <span style={styles.navTitle}>EXAMFORGE</span>} */}
         <span style={styles.navTitle}>EXAMFORGE</span>
       </div>
-      <div style={styles.navLinks}>
+ 
+      {/* Controls */}
+      <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "6px" : "10px", flexShrink: 0 }}>
+ 
+        {/* Dashboard */}
         <button
-          style={{ ...styles.navBtn, ...(page === "dashboard" ? styles.navBtnActive : {}), ...(isMobile ? styles.navBtnMobile : {}) }}
           onClick={() => setPage("dashboard")}
+          style={{ ...styles.navBtn, ...(page === "dashboard" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
         >
-          {isMobile ? "🏠" : "Dashboard"}
-          {!isMobile && <span style={styles.navBadge}>{testsCount}</span>}
+          {isMobile ? "🏠" : <span>Dashboard <span style={styles.navBadge}>{testsCount}</span></span>}
         </button>
-        {/* <button
-          style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? styles.navBtnMobile : {}) }}
-          onClick={() => setPage("create")}
-        >
-          {isMobile ? "+" : "+ New Test"}
-        </button> */}
+ 
+        {/* New test — admin only */}
         {role === "admin" && (
           <button
-            style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? styles.navBtnMobile : {}) }}
             onClick={() => setPage("create")}
+            style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
           >
-            {isMobile ? "+" : "+ New Test"}
+            {isMobile ? "＋" : "+ New Test"}
           </button>
         )}
+ 
+        {/* Theme toggle — icon only on mobile */}
         <button
           onClick={toggle}
-          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
           style={{
-            background: isDark ? t.bgHover : t.bgHover,
-            border: `1px solid ${t.borderMid}`,
-            borderRadius: "8px",
+            background: t.bgHover, border: `1px solid ${t.borderMid}`, borderRadius: "8px",
             padding: isMobile ? "8px 10px" : "6px 14px",
-            cursor: "pointer",
-            fontSize: isMobile ? "16px" : "13px",
-            color: t.text3,
-            fontFamily: "inherit",
-            display: "flex", alignItems: "center", gap: "6px",
-            transition: "all 0.2s",
+            cursor: "pointer", fontSize: isMobile ? "15px" : "13px",
+            color: t.text3, fontFamily: "inherit",
+            display: "flex", alignItems: "center", gap: "6px", flexShrink: 0,
           }}
         >
           {isDark ? "☀️" : "🌙"}
           {!isMobile && (isDark ? " Light" : " Dark")}
         </button>
-
-        {/* User menu */}
-        <div style={{ position: "relative" }}>
+ 
+        {/* User avatar button — avatar only on mobile */}
+        <div ref={menuRef} style={{ position: "relative", flexShrink: 0, zIndex: 200 }}>
           <button
             onClick={() => setShowUserMenu(m => !m)}
             style={{
-              background: t.bgHover, border: `1px solid ${t.borderMid}`,
-              borderRadius: "8px", padding: "6px 12px", cursor: "pointer",
-              color: t.text3, fontFamily: "inherit", fontSize: "13px",
-              display: "flex", alignItems: "center", gap: "8px",
+              background: t.bgHover, border: `1px solid ${t.borderMid}`, borderRadius: "8px",
+              padding: isMobile ? "5px 6px" : "5px 8px", cursor: "pointer", color: t.text3, fontFamily: "inherit",
+              display: "flex", alignItems: "center", gap: "6px",
             }}
           >
-            <span style={{ width: "24px", height: "24px", borderRadius: "50%", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", color: "white", fontWeight: "700" }}>
-              {user?.email?.[0]?.toUpperCase() || "U"}
+            {/* Avatar circle */}
+            <span style={{
+              width: "28px", height: "28px", borderRadius: "50%",
+              background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "12px", color: "white", fontWeight: "700", flexShrink: 0,
+            }}>
+              {avatarLetter}
             </span>
-            {!isMobile && (
-              <span style={{ maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {user?.email}
-              </span>
+            {/* Desktop: show ADMIN badge or email */}
+            {!isMobile && role === "admin" && (
+              <span style={{ fontSize: "10px", background: "#6366f120", color: "#6366f1", border: "1px solid #6366f140", borderRadius: "4px", padding: "2px 6px", fontWeight: "700" }}>ADMIN</span>
             )}
-            {role === "admin" && (
-              <span style={{ fontSize: "10px", background: "#6366f120", color: "#6366f1", border: "1px solid #6366f140", borderRadius: "4px", padding: "1px 6px", fontWeight: "700" }}>
-                ADMIN
-              </span>
+            {!isMobile && role !== "admin" && user?.email && (
+              <span style={{ fontSize: "12px", color: t.text3, maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
             )}
           </button>
  
+          {/* Dropdown — fixed so it escapes the sticky nav stacking context */}
           {showUserMenu && (
             <div style={{
-              position: "absolute", right: 0, top: "calc(100% + 8px)",
+              position: "fixed", right: "clamp(12px, 4vw, 32px)", top: "64px",
               background: t.bgCard, border: `1px solid ${t.border}`,
-              borderRadius: "10px", padding: "8px", minWidth: "180px",
-              zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+              borderRadius: "12px", padding: "8px", minWidth: "200px",
+              zIndex: 9999, boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
             }}>
-              <div style={{ padding: "8px 12px", borderBottom: `1px solid ${t.border}`, marginBottom: "6px" }}>
-                <div style={{ fontSize: "12px", fontWeight: "700", color: t.text1 }}>{user?.user_metadata?.full_name || "User"}</div>
-                <div style={{ fontSize: "11px", color: t.text4 }}>{user?.email}</div>
-                <div style={{ fontSize: "10px", color: "#6366f1", fontWeight: "700", marginTop: "4px", textTransform: "uppercase" }}>{role}</div>
+              <div style={{ padding: "10px 12px", borderBottom: `1px solid ${t.border}`, marginBottom: "6px" }}>
+                <div style={{ fontSize: "13px", fontWeight: "700", color: t.text1, marginBottom: "2px" }}>
+                  {user?.user_metadata?.full_name || "User"}
+                </div>
+                <div style={{ fontSize: "11px", color: t.text4, wordBreak: "break-all" }}>{user?.email}</div>
+                <div style={{ fontSize: "10px", color: "#6366f1", fontWeight: "700", marginTop: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{role}</div>
               </div>
               <button
                 onClick={() => { setShowUserMenu(false); handleSignOut(); }}
-                style={{ width: "100%", padding: "8px 12px", background: "transparent", border: "none", color: "#f87171", cursor: "pointer", fontFamily: "inherit", fontSize: "13px", textAlign: "left", borderRadius: "6px" }}
+                style={{
+                  width: "100%", padding: "9px 12px", background: "transparent",
+                  border: "none", color: "#f87171", cursor: "pointer",
+                  fontFamily: "inherit", fontSize: "13px", textAlign: "left", borderRadius: "6px",
+                }}
               >
-                Sign Out
+                ↪ Sign Out
               </button>
             </div>
           )}
         </div>
+ 
       </div>
     </nav>
   );
 }
-
+ 
+ 
 // ─── Attempt History ─────────────────────────────────────────────────────────
 function AttemptHistory({ attempts }) {
   const { t } = useTheme();
-  const styles = getStyles(t);
   const isMobile = useIsMobile();
   const [expanded, setExpanded] = useState(false);
   const PREVIEW = 5;
@@ -206,87 +226,118 @@ function AttemptHistory({ attempts }) {
  
   return (
     <div style={{ marginTop: "48px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
         <div>
-          <h2 style={{ ...styles.dashTitle, fontSize: "22px", margin: 0 }}>My Attempt History</h2>
-          <p style={{ ...styles.dashSub, margin: "4px 0 0" }}>{attempts.length} attempt{attempts.length !== 1 ? "s" : ""} recorded</p>
+          <h2 style={{ fontSize: isMobile ? "20px" : "22px", fontWeight: "800", color: t.text1, margin: 0, letterSpacing: "-0.5px" }}>
+            My Attempt History
+          </h2>
+          <p style={{ fontSize: "13px", color: t.text4, margin: "4px 0 0", fontFamily: "'IBM Plex Mono', monospace" }}>
+            {attempts.length} attempt{attempts.length !== 1 ? "s" : ""} recorded
+          </p>
         </div>
         {attempts.length > PREVIEW && (
           <button
             onClick={() => setExpanded(e => !e)}
-            style={{ background: "none", border: `1px solid ${t.borderMid}`, borderRadius: "8px", padding: "6px 14px", color: t.text3, cursor: "pointer", fontFamily: "inherit", fontSize: "12px" }}
+            style={{
+              background: "none", border: `1px solid ${t.borderMid}`,
+              borderRadius: "8px", padding: "6px 12px", color: t.text3,
+              cursor: "pointer", fontFamily: "inherit", fontSize: "12px", flexShrink: 0,
+            }}
           >
             {expanded ? "Show less ▲" : `Show all ${attempts.length} ▼`}
           </button>
         )}
       </div>
  
+      {/* Cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {shown.map((a, i) => {
-          const date = new Date(a.submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-          const time = new Date(a.submittedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+        {shown.map((a) => {
+          const dt = new Date(a.submittedAt);
+          const date = dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+          const time = dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+          const passColor = a.passed ? "#4ade80" : "#f87171";
+ 
           return (
             <div key={a.id} style={{
               background: t.bgCard,
-              border: `1px solid ${a.passed ? "#4ade8030" : "#f8717130"}`,
-              borderLeft: `3px solid ${a.passed ? "#4ade80" : "#f87171"}`,
+              border: `1px solid ${t.border}`,
+              borderLeft: `4px solid ${passColor}`,
               borderRadius: "10px",
-              padding: isMobile ? "14px 16px" : "16px 24px",
-              display: "flex", alignItems: "center",
-              gap: isMobile ? "12px" : "24px",
-              flexWrap: isMobile ? "wrap" : "nowrap",
+              padding: "14px 16px",
+              display: "flex",
+              gap: "14px",
+              alignItems: "flex-start",
             }}>
-              {/* Score pill */}
+ 
+              {/* Score pill — fixed width, never shrinks */}
               <div style={{
-                minWidth: "56px", height: "56px", borderRadius: "50%",
-                background: a.passed ? "#4ade8015" : "#f8717115",
-                border: `2px solid ${a.passed ? "#4ade8060" : "#f8717160"}`,
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                width: "52px", height: "52px", borderRadius: "50%",
+                background: a.passed ? "#4ade8012" : "#f8717112",
+                border: `2px solid ${passColor}55`,
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
                 flexShrink: 0,
               }}>
-                <span style={{ fontSize: "15px", fontWeight: "800", color: a.passed ? "#4ade80" : "#f87171", fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>
+                <span style={{ fontSize: "12px", fontWeight: "800", color: passColor, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>
                   {a.pct}%
                 </span>
-                <span style={{ fontSize: "9px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                <span style={{ fontSize: "8px", color: passColor, textTransform: "uppercase", letterSpacing: "0.3px", fontWeight: "700", marginTop: "2px" }}>
                   {a.passed ? "Pass" : "Fail"}
                 </span>
               </div>
  
-              {/* Quiz name + date */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "14px", fontWeight: "700", color: t.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {/* Right column — all rows stacked */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "4px" }}>
+ 
+                {/* Row 1 — Test name */}
+                <div style={{
+                  fontSize: "14px", fontWeight: "700", color: t.text1,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  lineHeight: 1.3,
+                }}>
                   {a.quizTitle}
                 </div>
-                <div style={{ fontSize: "12px", color: t.text4, marginTop: "3px" }}>
-                  {a.quizSubject && <span style={{ marginRight: "10px" }}>{a.quizSubject}</span>}
-                  {date} · {time}
-                </div>
-              </div>
  
-              {/* Stats row */}
-              <div style={{ display: "flex", gap: isMobile ? "12px" : "20px", flexShrink: 0, flexWrap: "wrap" }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "16px", fontWeight: "800", color: "#4ade80", fontFamily: "'IBM Plex Mono', monospace" }}>{a.correct}</div>
-                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Correct</div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "16px", fontWeight: "800", color: "#f87171", fontFamily: "'IBM Plex Mono', monospace" }}>{a.incorrect}</div>
-                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Wrong</div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "16px", fontWeight: "800", color: t.text3, fontFamily: "'IBM Plex Mono', monospace" }}>{a.unanswered}</div>
-                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Skipped</div>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: "16px", fontWeight: "800", color: "#6366f1", fontFamily: "'IBM Plex Mono', monospace" }}>{formatTime(a.timeTaken)}</div>
-                  <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Time</div>
-                </div>
-                {a.tabSwitches > 0 && (
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "16px", fontWeight: "800", color: "#facc15", fontFamily: "'IBM Plex Mono', monospace" }}>{a.tabSwitches}</div>
-                    <div style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Switches</div>
+                {/* Row 2 — Subject */}
+                {a.quizSubject && (
+                  <div>
+                    <span style={{
+                      fontSize: "11px", color: "#6366f1",
+                      background: "#6366f115", border: "1px solid #6366f130",
+                      borderRadius: "4px", padding: "1px 7px", fontWeight: "600",
+                      display: "inline-block",
+                    }}>
+                      {a.quizSubject}
+                    </span>
                   </div>
                 )}
+ 
+                {/* Row 3 — Date & Time */}
+                <div style={{ fontSize: "12px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" }}>
+                  {date} · {time}
+                </div>
+ 
+                {/* Row 4 — Stats */}
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "4px", alignItems: "baseline" }}>
+                  {[
+                    { value: a.correct,             label: "Correct",  color: "#4ade80" },
+                    { value: a.incorrect,            label: "Wrong",    color: "#f87171" },
+                    { value: a.unanswered,           label: "Skipped",  color: t.text3  },
+                    { value: formatTime(a.timeTaken), label: "Time",    color: "#6366f1" },
+                    ...(a.tabSwitches > 0 ? [{ value: a.tabSwitches, label: "Switches", color: "#facc15" }] : []),
+                  ].map(stat => (
+                    <div key={stat.label} style={{ display: "flex", alignItems: "baseline", gap: "3px" }}>
+                      <span style={{ fontSize: "14px", fontWeight: "800", color: stat.color, fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {stat.value}
+                      </span>
+                      <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.3px" }}>
+                        {stat.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+ 
               </div>
             </div>
           );
@@ -1618,385 +1669,384 @@ export default function MockTestApp() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // STYLES
 // ═══════════════════════════════════════════════════════════════════════════════
-function getStyles(t) { 
-  return {
-    root: {
-      minHeight: "100vh",
-      background: t.bg,
-      color: t.text2,
-      fontFamily: "'IBM Plex Mono', 'Courier New', monospace"
-    },
-    // NAV
-    nav: {
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
-      background: t.bgCard, borderBottom: `1px solid ${t.border}`,
-      position: "sticky", top: 0, zIndex: 100
-    },
-    navBrand: { display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" },
-    navLogo: {
-      width: "32px", height: "32px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: "16px", borderRadius: "6px", fontWeight: "bold"
-    },
-    navTitle: { fontSize: "16px", fontWeight: "700", letterSpacing: "4px", color: t.text1 },
-    navLinks: { display: "flex", gap: "8px" },
-    navBtn: {
-      padding: "8px 20px", borderRadius: "6px", border: `1px solid ${t.border}`,
-      background: "transparent", color: t.text3, cursor: "pointer",
-      fontSize: "13px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
-      transition: "all 0.2s"
-    },
-    navBtnActive: { background: t.bgHover, color: t.text2, borderColor: "#334155" },
-    navBadge: {
-      background: "#6366f1", color: "white", borderRadius: "10px",
-      padding: "1px 8px", fontSize: "11px", fontWeight: "bold"
-    },
-    // MAIN
-    main: { maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" },
-    page: {},
-    // DASHBOARD
-    dashHeader: { marginBottom: "32px" },
-    dashTitle: { fontSize: "clamp(22px, 5vw, 32px)", fontWeight: "700", color: t.text1, margin: 0, letterSpacing: "-0.5px" },
-    dashSub: { color: t.text4, marginTop: "6px", fontSize: "14px" },
-    cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: "16px" },
-    card: {
-      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
-      padding: "24px", transition: "all 0.2s", cursor: "default"
-    },
-    cardHover: { border: `1px solid ${t.borderMid}`, transform: "translateY(-2px)", boxShadow: "0 8px 32px #6366f120" },
-    cardTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" },
-    cardSubject: { fontSize: "11px", fontWeight: "600", letterSpacing: "2px", color: "#6366f1", textTransform: "uppercase" },
-    cardDiff: { fontSize: "12px", fontWeight: "600" },
-    cardTitle: { fontSize: "18px", fontWeight: "700", color: t.text1, margin: "0 0 16px", lineHeight: 1.3 },
-    cardMeta: { display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "20px" },
-    metaItem: { fontSize: "12px", color: t.text4 },
-    cardActions: { display: "flex", gap: "10px", alignItems: "center" },
-    startBtn: {
-      flex: 1, padding: "10px 20px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
-    },
-    deleteBtn: {
-      padding: "10px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-      borderRadius: "8px", cursor: "pointer", fontSize: "14px"
-    },
-    emptyState: { textAlign: "center", padding: "80px 20px" },
-    emptyIcon: { fontSize: "64px", marginBottom: "20px" },
-    emptyTitle: { fontSize: "24px", fontWeight: "700", color: t.text2, margin: "0 0 8px" },
-    emptySub: { color: t.text4, fontSize: "14px" },
-    // CREATE
-    createLayout: { display: "grid", gridTemplateColumns: "1fr 380px", gap: "24px", marginTop: "24px" },
-    editorPanel: { display: "flex", flexDirection: "column", gap: "12px" },
-    editorHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-    editorLabel: { fontSize: "13px", fontWeight: "600", color: t.text3, letterSpacing: "1px" },
-    resetBtn: {
-      padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
-      color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
-    },
-    textarea: {
-      width: "100%", minHeight: "460px", padding: "20px",
-      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "10px",
-      color: t.code, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
-      lineHeight: 1.7, resize: "vertical", outline: "none", boxSizing: "border-box"
-    },
-    errorBox: {
-      background: "#f8717115", border: "1px solid #f8717140", borderRadius: "8px",
-      padding: "12px 16px", color: "#f87171", fontSize: "13px"
-    },
-    successBox: {
-      background: "#4ade8015", border: "1px solid #4ade8040", borderRadius: "8px",
-      padding: "12px 16px", color: "#4ade80", fontSize: "13px"
-    },
-    createBtn: {
-      padding: "14px 28px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-      color: "white", border: "none", borderRadius: "10px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "700", fontSize: "14px", letterSpacing: "0.5px"
-    },
-    schemaPanel: {
-      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
-      padding: "24px", display: "flex", flexDirection: "column", gap: "12px",
-      alignSelf: "start", position: "sticky", top: "80px"
-    },
-    schemaTitle: { fontSize: "13px", fontWeight: "600", color: t.text3, margin: "0 0 8px", letterSpacing: "1px", textTransform: "uppercase" },
-    schemaRow: { display: "flex", flexDirection: "column", gap: "3px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
-    schemaField: { display: "flex", alignItems: "center", gap: "8px" },
-    fieldCode: { fontSize: "12px", color: t.code, background: "#0a1628", padding: "2px 6px", borderRadius: "4px" },
-    reqBadge: { fontSize: "10px", color: "#f87171", border: "1px solid #f8717140", borderRadius: "4px", padding: "1px 6px" },
-    schemaType: { fontSize: "11px", color: "#6366f1" },
-    schemaDesc: { fontSize: "12px", color: t.text4 },
-    // TEST
-    testWrap: { minHeight: "100vh", background: t.bg, display: "flex", flexDirection: "column", touchAction: "manipulation" },
-    timerBar: {
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "12px 32px", background: t.bgCard, borderBottom: `1px solid ${t.border}`
-    },
-    timerLeft: {},
-    testTitleSmall: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
-    timerDisplay: {
-      display: "flex", alignItems: "center", gap: "8px",
-      background: t.bgHover, padding: "8px 20px", borderRadius: "8px"
-    },
-    timerDanger: { background: "#f8717120", animation: "pulse 1s infinite" },
-    timerIcon: { fontSize: "16px" },
-    timerText: { fontSize: "20px", fontWeight: "700", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "2px" },
-    timerRight: {},
-    timerProgress: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
-    timerTrack: { height: "3px", background: t.bgHover },
-    timerFill: { height: "100%", transition: "width 1s linear" },
-    testBody: { display: "flex", flex: 1 },
-    // SIDEBAR
-    sidebar: {
-      width: "220px", background: t.bgCard, borderRight: `1px solid ${t.border}`,
-      padding: "24px 16px", display: "flex", flexDirection: "column", gap: "16px"
-    },
-    sidebarLabel: { fontSize: "11px", fontWeight: "600", color: t.text4, letterSpacing: "2px", textTransform: "uppercase", margin: 0 },
-    qGrid: { display: "flex", flexWrap: "wrap", gap: "6px" },
-    qDot: {
-      width: "36px", height: "36px", borderRadius: "8px",
-      background: t.bgHover, border: `1px solid ${t.borderMid}`, color: t.text3,
-      cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit"
-    },
-    qDotCurrent: { background: "#6366f1", border: "1px solid #6366f1", color: "white" },
-    qDotAnswered: { background: "#4ade8020", border: "1px solid #4ade8060", color: "#4ade80" },
-    qDotFlagged: { background: "#facc1520", border: "1px solid #facc1560", color: "#facc15" },
-    sidebarLegend: { display: "flex", flexDirection: "column", gap: "6px" },
-    legendItem: { fontSize: "11px", color: t.text4, display: "flex", alignItems: "center", gap: "6px" },
-    legendDot: { width: "10px", height: "10px", borderRadius: "50%", display: "inline-block" },
-    submitSideBtn: {
-      marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
-    },
-    // QUESTION AREA
-    questionArea: { flex: 1, padding: "40px 48px", maxWidth: "800px" },
-    questionMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
-    questionNum: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
-    flagBtn: {
-      padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
-      color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
-    },
-    flagBtnActive: { border: "1px solid #facc1560", color: "#facc15", background: "#facc1510" },
-    questionText: { fontSize: "22px", fontWeight: "600", color: t.text1, lineHeight: 1.5, marginBottom: "32px" },
-    optionsList: { display: "flex", flexDirection: "column", gap: "12px", marginBottom: "40px" },
-    optionBtn: {
-      display: "flex", alignItems: "center", gap: "16px",
-      padding: "16px 20px", background: t.bgCard, border: `2px solid ${t.border}`,
-      borderRadius: "10px", cursor: "pointer", color: t.text2,
-      textAlign: "left", transition: "all 0.15s", fontFamily: "inherit",
-      width: "100%", pointerEvents: "auto", userSelect: "none", WebkitUserSelect: "none",
-      touchAction: "manipulation"
-    },
-    optionBtnSelected: { border: "2px solid #6366f1", background: "#6366f115" },
-    optionLabel: {
-      width: "32px", height: "32px", background: t.bgHover, borderRadius: "6px",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: "13px", fontWeight: "700", color: t.text4, flexShrink: 0
-    },
-    optionLabelSelected: { background: "#6366f1", color: "white" },
-    optionText: { fontSize: "15px" },
-    navBtns: { display: "flex", gap: "12px" },
-    navTestBtn: {
-      padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-      color: t.text3, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "13px"
-    },
-    navTestBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
-    navTestBtnPrimary: {
-      padding: "12px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
-    },
-    navTestBtnSubmit: {
-      padding: "12px 24px", background: "linear-gradient(135deg, #4ade80, #22c55e)",
-      color: t.bg, border: "none", borderRadius: "8px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
-    },
-    // RESULTS
-    resultsWrap: { maxWidth: "900px", margin: "0 auto", padding: "40px 32px" },
-    resultsSummary: {
-      display: "flex", gap: "48px", alignItems: "center",
-      background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px",
-      padding: "40px", marginBottom: "48px"
-    },
-    scoreCircleWrap: { position: "relative", flexShrink: 0 },
-    scoreInner: {
-      position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-      alignItems: "center", justifyContent: "center"
-    },
-    scoreNum: { fontSize: "28px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
-    scoreLabel: { fontSize: "13px", color: t.text4 },
-    summaryInfo: { flex: 1 },
-    resultsTitle: { fontSize: "28px", fontWeight: "800", color: t.text1, margin: "0 0 8px" },
-    resultsSub: { color: t.text4, fontSize: "14px", marginBottom: "28px" },
-    summaryStats: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "28px" },
-    statBox: {
-      background: t.bg, border: `1px solid ${t.border}`, borderRadius: "10px",
-      padding: "16px", display: "flex", flexDirection: "column", gap: "4px"
-    },
-    statValue: { fontSize: "22px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
-    statLabel: { fontSize: "11px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" },
-    backBtn: {
-      padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-      color: t.text2, borderRadius: "8px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
-    },
-    reviewTitle: { fontSize: "20px", fontWeight: "700", color: t.text1, marginBottom: "20px" },
-    reviewList: { display: "flex", flexDirection: "column", gap: "12px" },
-    reviewCard: {
-      background: t.bgCard, border: "1px solid", borderRadius: "10px", overflow: "hidden"
-    },
-    reviewCardTop: {
-      display: "flex", justifyContent: "space-between", alignItems: "center",
-      padding: "16px 20px", cursor: "pointer"
-    },
-    reviewCardLeft: { display: "flex", alignItems: "center", gap: "12px", flex: 1 },
-    reviewStatus: { fontSize: "18px", fontWeight: "800", width: "24px" },
-    reviewQNum: { fontSize: "12px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
-    reviewQText: { fontSize: "14px", color: t.text2 },
-    reviewExpand: { fontSize: "12px", color: t.text4 },
-    reviewDetail: { padding: "0 20px 20px", borderTop: `1px solid ${t.border}` },
-    reviewOptions: { display: "flex", flexDirection: "column", gap: "8px", paddingTop: "16px" },
-    reviewOpt: {
-      display: "flex", alignItems: "center", gap: "12px",
-      padding: "10px 14px", border: "1px solid", borderRadius: "8px", fontSize: "13px", color: t.text2
-    },
-    reviewOptLabel: {
-      width: "24px", height: "24px", background: t.bgHover, borderRadius: "4px",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: "11px", fontWeight: "700", flexShrink: 0
-    },
-    correctTag: { marginLeft: "auto", fontSize: "11px", color: "#4ade80", fontWeight: "600" },
-    wrongTag: { marginLeft: "auto", fontSize: "11px", color: "#f87171", fontWeight: "600" },
-    explanation: {
-      marginTop: "16px", background: "#6366f110", border: "1px solid #6366f130",
-      borderRadius: "8px", padding: "16px"
-    },
-    explanationLabel: { fontSize: "12px", fontWeight: "700", color: "#6366f1", letterSpacing: "1px", display: "block", marginBottom: "8px" },
-    explanationText: { fontSize: "13px", color: t.text3, lineHeight: 1.7, margin: 0 },
-  
-    // ─── MOBILE / RESPONSIVE ────────────────────────────────────────────────────
-    navBtnMobile: { padding: "8px 14px", fontSize: "16px" },
-    createLayoutMobile: { gridTemplateColumns: "1fr" },
-    timerBarMobile: { padding: "10px 16px" },
-    timerDisplayMobile: { padding: "6px 14px" },
-    questionAreaMobile: { padding: "20px 16px 160px 16px", maxWidth: "100%" },
-    questionTextMobile: { fontSize: "17px", marginBottom: "20px" },
-    optionBtnMobile: { padding: "14px 14px", gap: "12px" },
-    navBtnsMobile: { position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px", background: t.bg, borderTop: `1px solid ${t.border}`, zIndex: 50 },
-    qNavToggleBtn: {
-      padding: "6px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-      color: t.text3, borderRadius: "6px", cursor: "pointer", fontSize: "13px",
-      fontFamily: "inherit"
-    },
-    submitTopBtn: {
-      padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-      color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
-    },
-    mobileQNav: {
-      background: t.bgCard, borderBottom: `1px solid ${t.borderMid}`,
-      padding: "16px", display: "flex", flexDirection: "column", gap: "12px"
-    },
-    mobileQNavHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-    closeDrawerBtn: {
-      background: "transparent", border: "none", color: t.text3,
-      fontSize: "16px", cursor: "pointer", padding: "4px 8px"
-    },
-    resultsWrapMobile: { padding: "16px" },
-    resultsSummaryMobile: { flexDirection: "column", gap: "20px", padding: "24px", alignItems: "center", textAlign: "center" },
-    summaryStatsMobile: { gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" },
-    statBoxMobile: { padding: "12px" },
-    reviewOptMobile: { flexWrap: "wrap", gap: "8px" },
-  
-    // ─── ANTI-CHEAT ─────────────────────────────────────────────────────────────
-    warningOverlay: {
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 9999, backdropFilter: "blur(6px)"
-    },
-    warningBox: {
-      background: t.bgCard, border: "2px solid #f87171",
-      borderRadius: "16px", padding: "48px 40px", maxWidth: "420px",
-      textAlign: "center", display: "flex", flexDirection: "column",
-      alignItems: "center", gap: "16px", boxShadow: "0 0 60px #f8717140"
-    },
-    warningIcon: { fontSize: "48px" },
-    warningTitle: { fontSize: "22px", fontWeight: "800", color: "#f87171", margin: 0 },
-    warningDesc: { fontSize: "14px", color: t.text3, lineHeight: 1.6, margin: 0 },
-    warningBtn: {
-      marginTop: "8px", padding: "12px 32px",
-      background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-      color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-      fontFamily: "inherit", fontWeight: "700", fontSize: "14px"
-    },
-    tabAlertBanner: {
-      background: "#facc1515", borderBottom: "1px solid #facc1540",
-      color: "#facc15", padding: "10px 20px", fontSize: "13px",
-      display: "flex", justifyContent: "space-between", alignItems: "center",
-      fontFamily: "inherit"
-    },
-    tabAlertClose: {
-      background: "transparent", border: "none", color: "#facc15",
-      cursor: "pointer", fontSize: "14px", padding: "2px 6px", fontFamily: "inherit"
-    },
-    copyBanner: {
-      position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)",
-      background: "#f8717120", border: "1px solid #f87171", borderRadius: "8px",
-      color: "#f87171", padding: "10px 20px", fontSize: "13px",
-      zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
-    },
-    warningChip: {
-      fontSize: "12px", color: "#facc15", background: "#facc1515",
-      border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
-    },
-    fsIndicator: {
-      fontSize: "12px", fontFamily: "inherit"
-    },
-  
-    // ─── DB / LOADING ────────────────────────────────────────────────────────────
-    loadingState: {
-      display: "flex", flexDirection: "column", alignItems: "center",
-      justifyContent: "center", padding: "80px 20px", gap: "20px"
-    },
-    spinner: {
-      width: "40px", height: "40px", borderRadius: "50%",
-      border: `3px solid ${t.border}`, borderTop: "3px solid #6366f1",
-      animation: "spin 0.8s linear infinite"
-    },
-    loadingText: { color: t.text4, fontSize: "14px" },
-    dbErrorBox: {
-      background: "#f8717110", border: "1px solid #f8717140", borderRadius: "10px",
-      padding: "16px 20px", marginBottom: "24px", display: "flex", gap: "14px", alignItems: "flex-start"
-    },
-    dbErrorIcon: { fontSize: "20px", color: "#f87171", flexShrink: 0 },
-    dbErrorMsg: { margin: "4px 0 0", fontSize: "13px", color: t.text3 },
-    dbLog: {
-      background: t.bgDeep, border: `1px solid ${t.border}`, borderRadius: "8px",
-      padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px"
-    },
-    dbLogLine: {
-      fontSize: "12px", color: t.text3, fontFamily: "'IBM Plex Mono', monospace",
-      display: "flex", gap: "8px", alignItems: "flex-start"
-    },
-    createBtnSaving: { opacity: 0.6, cursor: "not-allowed" },
-    archRow: { display: "flex", flexDirection: "column", gap: "4px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
-    archTable: {
-      fontSize: "12px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700",
-      border: "1px solid", borderRadius: "4px", padding: "2px 8px",
-      display: "inline-block", alignSelf: "flex-start"
-    },
-    // AUTH
-    authInput: {
-      width: "100%", padding: "12px 14px", background: t.bgDeep,
-      border: `1px solid ${t.border}`, borderRadius: "8px",
-      color: t.text1, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
-      outline: "none", boxSizing: "border-box",
-    },
-    authSocialBtn: {
-      display: "flex", alignItems: "center", justifyContent: "center", gap: "10px",
-      padding: "12px 16px", background: t.bgDeep, border: `1px solid ${t.borderMid}`,
-      borderRadius: "8px", cursor: "pointer", color: t.text2,
-      fontFamily: "inherit", fontSize: "13px", fontWeight: "600",
-    },
-  }; 
-}
+function getStyles(t) { return {
+  root: {
+    minHeight: "100vh",
+    background: t.bg,
+    color: t.text2,
+    fontFamily: "'IBM Plex Mono', 'Courier New', monospace"
+  },
+  // NAV
+  nav: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
+    overflow: "hidden",
+    background: t.bgCard, borderBottom: `1px solid ${t.border}`,
+    position: "sticky", top: 0, zIndex: 100
+  },
+  navBrand: { display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" },
+  navLogo: {
+    width: "32px", height: "32px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: "16px", borderRadius: "6px", fontWeight: "bold"
+  },
+  navTitle: { fontSize: "16px", fontWeight: "700", letterSpacing: "4px", color: t.text1 },
+  navLinks: { display: "flex", gap: "8px" },
+  navBtn: {
+    padding: "8px 20px", borderRadius: "6px", border: `1px solid ${t.border}`,
+    background: "transparent", color: t.text3, cursor: "pointer",
+    fontSize: "13px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
+    transition: "all 0.2s"
+  },
+  navBtnActive: { background: t.bgHover, color: t.text2, borderColor: "#334155" },
+  navBadge: {
+    background: "#6366f1", color: "white", borderRadius: "10px",
+    padding: "1px 8px", fontSize: "11px", fontWeight: "bold"
+  },
+  // MAIN
+  main: { maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" },
+  page: {},
+  // DASHBOARD
+  dashHeader: { marginBottom: "32px" },
+  dashTitle: { fontSize: "clamp(22px, 5vw, 32px)", fontWeight: "700", color: t.text1, margin: 0, letterSpacing: "-0.5px" },
+  dashSub: { color: t.text4, marginTop: "6px", fontSize: "14px" },
+  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: "16px" },
+  card: {
+    background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "24px", transition: "all 0.2s", cursor: "default"
+  },
+  cardHover: { border: `1px solid ${t.borderMid}`, transform: "translateY(-2px)", boxShadow: "0 8px 32px #6366f120" },
+  cardTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" },
+  cardSubject: { fontSize: "11px", fontWeight: "600", letterSpacing: "2px", color: "#6366f1", textTransform: "uppercase" },
+  cardDiff: { fontSize: "12px", fontWeight: "600" },
+  cardTitle: { fontSize: "18px", fontWeight: "700", color: t.text1, margin: "0 0 16px", lineHeight: 1.3 },
+  cardMeta: { display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "20px" },
+  metaItem: { fontSize: "12px", color: t.text4 },
+  cardActions: { display: "flex", gap: "10px", alignItems: "center" },
+  startBtn: {
+    flex: 1, padding: "10px 20px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
+  },
+  deleteBtn: {
+    padding: "10px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+    borderRadius: "8px", cursor: "pointer", fontSize: "14px"
+  },
+  emptyState: { textAlign: "center", padding: "80px 20px" },
+  emptyIcon: { fontSize: "64px", marginBottom: "20px" },
+  emptyTitle: { fontSize: "24px", fontWeight: "700", color: t.text2, margin: "0 0 8px" },
+  emptySub: { color: t.text4, fontSize: "14px" },
+  // CREATE
+  createLayout: { display: "grid", gridTemplateColumns: "1fr 380px", gap: "24px", marginTop: "24px" },
+  editorPanel: { display: "flex", flexDirection: "column", gap: "12px" },
+  editorHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  editorLabel: { fontSize: "13px", fontWeight: "600", color: t.text3, letterSpacing: "1px" },
+  resetBtn: {
+    padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
+    color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
+  },
+  textarea: {
+    width: "100%", minHeight: "460px", padding: "20px",
+    background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "10px",
+    color: t.code, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
+    lineHeight: 1.7, resize: "vertical", outline: "none", boxSizing: "border-box"
+  },
+  errorBox: {
+    background: "#f8717115", border: "1px solid #f8717140", borderRadius: "8px",
+    padding: "12px 16px", color: "#f87171", fontSize: "13px"
+  },
+  successBox: {
+    background: "#4ade8015", border: "1px solid #4ade8040", borderRadius: "8px",
+    padding: "12px 16px", color: "#4ade80", fontSize: "13px"
+  },
+  createBtn: {
+    padding: "14px 28px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "10px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "14px", letterSpacing: "0.5px"
+  },
+  schemaPanel: {
+    background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
+    padding: "24px", display: "flex", flexDirection: "column", gap: "12px",
+    alignSelf: "start", position: "sticky", top: "80px"
+  },
+  schemaTitle: { fontSize: "13px", fontWeight: "600", color: t.text3, margin: "0 0 8px", letterSpacing: "1px", textTransform: "uppercase" },
+  schemaRow: { display: "flex", flexDirection: "column", gap: "3px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
+  schemaField: { display: "flex", alignItems: "center", gap: "8px" },
+  fieldCode: { fontSize: "12px", color: t.code, background: "#0a1628", padding: "2px 6px", borderRadius: "4px" },
+  reqBadge: { fontSize: "10px", color: "#f87171", border: "1px solid #f8717140", borderRadius: "4px", padding: "1px 6px" },
+  schemaType: { fontSize: "11px", color: "#6366f1" },
+  schemaDesc: { fontSize: "12px", color: t.text4 },
+  // TEST
+  testWrap: { minHeight: "100vh", background: t.bg, display: "flex", flexDirection: "column", touchAction: "manipulation" },
+  timerBar: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "12px 32px", background: t.bgCard, borderBottom: `1px solid ${t.border}`
+  },
+  timerLeft: {},
+  testTitleSmall: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+  timerDisplay: {
+    display: "flex", alignItems: "center", gap: "8px",
+    background: t.bgHover, padding: "8px 20px", borderRadius: "8px"
+  },
+  timerDanger: { background: "#f8717120", animation: "pulse 1s infinite" },
+  timerIcon: { fontSize: "16px" },
+  timerText: { fontSize: "20px", fontWeight: "700", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "2px" },
+  timerRight: {},
+  timerProgress: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+  timerTrack: { height: "3px", background: t.bgHover },
+  timerFill: { height: "100%", transition: "width 1s linear" },
+  testBody: { display: "flex", flex: 1 },
+  // SIDEBAR
+  sidebar: {
+    width: "220px", background: t.bgCard, borderRight: `1px solid ${t.border}`,
+    padding: "24px 16px", display: "flex", flexDirection: "column", gap: "16px"
+  },
+  sidebarLabel: { fontSize: "11px", fontWeight: "600", color: t.text4, letterSpacing: "2px", textTransform: "uppercase", margin: 0 },
+  qGrid: { display: "flex", flexWrap: "wrap", gap: "6px" },
+  qDot: {
+    width: "36px", height: "36px", borderRadius: "8px",
+    background: t.bgHover, border: `1px solid ${t.borderMid}`, color: t.text3,
+    cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit"
+  },
+  qDotCurrent: { background: "#6366f1", border: "1px solid #6366f1", color: "white" },
+  qDotAnswered: { background: "#4ade8020", border: "1px solid #4ade8060", color: "#4ade80" },
+  qDotFlagged: { background: "#facc1520", border: "1px solid #facc1560", color: "#facc15" },
+  sidebarLegend: { display: "flex", flexDirection: "column", gap: "6px" },
+  legendItem: { fontSize: "11px", color: t.text4, display: "flex", alignItems: "center", gap: "6px" },
+  legendDot: { width: "10px", height: "10px", borderRadius: "50%", display: "inline-block" },
+  submitSideBtn: {
+    marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+  },
+  // QUESTION AREA
+  questionArea: { flex: 1, padding: "40px 48px", maxWidth: "800px" },
+  questionMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
+  questionNum: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+  flagBtn: {
+    padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
+    color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
+  },
+  flagBtnActive: { border: "1px solid #facc1560", color: "#facc15", background: "#facc1510" },
+  questionText: { fontSize: "22px", fontWeight: "600", color: t.text1, lineHeight: 1.5, marginBottom: "32px" },
+  optionsList: { display: "flex", flexDirection: "column", gap: "12px", marginBottom: "40px" },
+  optionBtn: {
+    display: "flex", alignItems: "center", gap: "16px",
+    padding: "16px 20px", background: t.bgCard, border: `2px solid ${t.border}`,
+    borderRadius: "10px", cursor: "pointer", color: t.text2,
+    textAlign: "left", transition: "all 0.15s", fontFamily: "inherit",
+    width: "100%", pointerEvents: "auto", userSelect: "none", WebkitUserSelect: "none",
+    touchAction: "manipulation"
+  },
+  optionBtnSelected: { border: "2px solid #6366f1", background: "#6366f115" },
+  optionLabel: {
+    width: "32px", height: "32px", background: t.bgHover, borderRadius: "6px",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: "13px", fontWeight: "700", color: t.text4, flexShrink: 0
+  },
+  optionLabelSelected: { background: "#6366f1", color: "white" },
+  optionText: { fontSize: "15px" },
+  navBtns: { display: "flex", gap: "12px" },
+  navTestBtn: {
+    padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+    color: t.text3, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "13px"
+  },
+  navTestBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
+  navTestBtnPrimary: {
+    padding: "12px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+  },
+  navTestBtnSubmit: {
+    padding: "12px 24px", background: "linear-gradient(135deg, #4ade80, #22c55e)",
+    color: t.bg, border: "none", borderRadius: "8px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+  },
+  // RESULTS
+  resultsWrap: { maxWidth: "900px", margin: "0 auto", padding: "40px 32px" },
+  resultsSummary: {
+    display: "flex", gap: "48px", alignItems: "center",
+    background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px",
+    padding: "40px", marginBottom: "48px"
+  },
+  scoreCircleWrap: { position: "relative", flexShrink: 0 },
+  scoreInner: {
+    position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+    alignItems: "center", justifyContent: "center"
+  },
+  scoreNum: { fontSize: "28px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
+  scoreLabel: { fontSize: "13px", color: t.text4 },
+  summaryInfo: { flex: 1 },
+  resultsTitle: { fontSize: "28px", fontWeight: "800", color: t.text1, margin: "0 0 8px" },
+  resultsSub: { color: t.text4, fontSize: "14px", marginBottom: "28px" },
+  summaryStats: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "28px" },
+  statBox: {
+    background: t.bg, border: `1px solid ${t.border}`, borderRadius: "10px",
+    padding: "16px", display: "flex", flexDirection: "column", gap: "4px"
+  },
+  statValue: { fontSize: "22px", fontWeight: "800", fontFamily: "'IBM Plex Mono', monospace" },
+  statLabel: { fontSize: "11px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" },
+  backBtn: {
+    padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+    color: t.text2, borderRadius: "8px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "600", fontSize: "13px"
+  },
+  reviewTitle: { fontSize: "20px", fontWeight: "700", color: t.text1, marginBottom: "20px" },
+  reviewList: { display: "flex", flexDirection: "column", gap: "12px" },
+  reviewCard: {
+    background: t.bgCard, border: "1px solid", borderRadius: "10px", overflow: "hidden"
+  },
+  reviewCardTop: {
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    padding: "16px 20px", cursor: "pointer"
+  },
+  reviewCardLeft: { display: "flex", alignItems: "center", gap: "12px", flex: 1 },
+  reviewStatus: { fontSize: "18px", fontWeight: "800", width: "24px" },
+  reviewQNum: { fontSize: "12px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+  reviewQText: { fontSize: "14px", color: t.text2 },
+  reviewExpand: { fontSize: "12px", color: t.text4 },
+  reviewDetail: { padding: "0 20px 20px", borderTop: `1px solid ${t.border}` },
+  reviewOptions: { display: "flex", flexDirection: "column", gap: "8px", paddingTop: "16px" },
+  reviewOpt: {
+    display: "flex", alignItems: "center", gap: "12px",
+    padding: "10px 14px", border: "1px solid", borderRadius: "8px", fontSize: "13px", color: t.text2
+  },
+  reviewOptLabel: {
+    width: "24px", height: "24px", background: t.bgHover, borderRadius: "4px",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: "11px", fontWeight: "700", flexShrink: 0
+  },
+  correctTag: { marginLeft: "auto", fontSize: "11px", color: "#4ade80", fontWeight: "600" },
+  wrongTag: { marginLeft: "auto", fontSize: "11px", color: "#f87171", fontWeight: "600" },
+  explanation: {
+    marginTop: "16px", background: "#6366f110", border: "1px solid #6366f130",
+    borderRadius: "8px", padding: "16px"
+  },
+  explanationLabel: { fontSize: "12px", fontWeight: "700", color: "#6366f1", letterSpacing: "1px", display: "block", marginBottom: "8px" },
+  explanationText: { fontSize: "13px", color: t.text3, lineHeight: 1.7, margin: 0 },
+ 
+  // ─── MOBILE / RESPONSIVE ────────────────────────────────────────────────────
+  navBtnMobile: { padding: "8px 14px", fontSize: "16px" },
+  createLayoutMobile: { gridTemplateColumns: "1fr" },
+  timerBarMobile: { padding: "10px 16px" },
+  timerDisplayMobile: { padding: "6px 14px" },
+  questionAreaMobile: { padding: "20px 16px 160px 16px", maxWidth: "100%" },
+  questionTextMobile: { fontSize: "17px", marginBottom: "20px" },
+  optionBtnMobile: { padding: "14px 14px", gap: "12px" },
+  navBtnsMobile: { position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px", background: t.bg, borderTop: `1px solid ${t.border}`, zIndex: 50 },
+  qNavToggleBtn: {
+    padding: "6px 12px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
+    color: t.text3, borderRadius: "6px", cursor: "pointer", fontSize: "13px",
+    fontFamily: "inherit"
+  },
+  submitTopBtn: {
+    padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
+  },
+  mobileQNav: {
+    background: t.bgCard, borderBottom: `1px solid ${t.borderMid}`,
+    padding: "16px", display: "flex", flexDirection: "column", gap: "12px"
+  },
+  mobileQNavHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  closeDrawerBtn: {
+    background: "transparent", border: "none", color: t.text3,
+    fontSize: "16px", cursor: "pointer", padding: "4px 8px"
+  },
+  resultsWrapMobile: { padding: "16px" },
+  resultsSummaryMobile: { flexDirection: "column", gap: "20px", padding: "24px", alignItems: "center", textAlign: "center" },
+  summaryStatsMobile: { gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" },
+  statBoxMobile: { padding: "12px" },
+  reviewOptMobile: { flexWrap: "wrap", gap: "8px" },
+ 
+  // ─── ANTI-CHEAT ─────────────────────────────────────────────────────────────
+  warningOverlay: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 9999, backdropFilter: "blur(6px)"
+  },
+  warningBox: {
+    background: t.bgCard, border: "2px solid #f87171",
+    borderRadius: "16px", padding: "48px 40px", maxWidth: "420px",
+    textAlign: "center", display: "flex", flexDirection: "column",
+    alignItems: "center", gap: "16px", boxShadow: "0 0 60px #f8717140"
+  },
+  warningIcon: { fontSize: "48px" },
+  warningTitle: { fontSize: "22px", fontWeight: "800", color: "#f87171", margin: 0 },
+  warningDesc: { fontSize: "14px", color: t.text3, lineHeight: 1.6, margin: 0 },
+  warningBtn: {
+    marginTop: "8px", padding: "12px 32px",
+    background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "14px"
+  },
+  tabAlertBanner: {
+    background: "#facc1515", borderBottom: "1px solid #facc1540",
+    color: "#facc15", padding: "10px 20px", fontSize: "13px",
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    fontFamily: "inherit"
+  },
+  tabAlertClose: {
+    background: "transparent", border: "none", color: "#facc15",
+    cursor: "pointer", fontSize: "14px", padding: "2px 6px", fontFamily: "inherit"
+  },
+  copyBanner: {
+    position: "fixed", top: "80px", left: "50%", transform: "translateX(-50%)",
+    background: "#f8717120", border: "1px solid #f87171", borderRadius: "8px",
+    color: "#f87171", padding: "10px 20px", fontSize: "13px",
+    zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
+  },
+  warningChip: {
+    fontSize: "12px", color: "#facc15", background: "#facc1515",
+    border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
+  },
+  fsIndicator: {
+    fontSize: "12px", fontFamily: "inherit"
+  },
+ 
+  // ─── DB / LOADING ────────────────────────────────────────────────────────────
+  loadingState: {
+    display: "flex", flexDirection: "column", alignItems: "center",
+    justifyContent: "center", padding: "80px 20px", gap: "20px"
+  },
+  spinner: {
+    width: "40px", height: "40px", borderRadius: "50%",
+    border: `3px solid ${t.border}`, borderTop: "3px solid #6366f1",
+    animation: "spin 0.8s linear infinite"
+  },
+  loadingText: { color: t.text4, fontSize: "14px" },
+  dbErrorBox: {
+    background: "#f8717110", border: "1px solid #f8717140", borderRadius: "10px",
+    padding: "16px 20px", marginBottom: "24px", display: "flex", gap: "14px", alignItems: "flex-start"
+  },
+  dbErrorIcon: { fontSize: "20px", color: "#f87171", flexShrink: 0 },
+  dbErrorMsg: { margin: "4px 0 0", fontSize: "13px", color: t.text3 },
+  dbLog: {
+    background: t.bgDeep, border: `1px solid ${t.border}`, borderRadius: "8px",
+    padding: "14px 16px", display: "flex", flexDirection: "column", gap: "6px"
+  },
+  dbLogLine: {
+    fontSize: "12px", color: t.text3, fontFamily: "'IBM Plex Mono', monospace",
+    display: "flex", gap: "8px", alignItems: "flex-start"
+  },
+  createBtnSaving: { opacity: 0.6, cursor: "not-allowed" },
+  archRow: { display: "flex", flexDirection: "column", gap: "4px", paddingBottom: "10px", borderBottom: `1px solid ${t.border}` },
+  archTable: {
+    fontSize: "12px", fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700",
+    border: "1px solid", borderRadius: "4px", padding: "2px 8px",
+    display: "inline-block", alignSelf: "flex-start"
+  },
+  // AUTH
+  authInput: {
+    width: "100%", padding: "12px 14px", background: t.bgDeep,
+    border: `1px solid ${t.border}`, borderRadius: "8px",
+    color: t.text1, fontFamily: "'IBM Plex Mono', monospace", fontSize: "13px",
+    outline: "none", boxSizing: "border-box",
+  },
+  authSocialBtn: {
+    display: "flex", alignItems: "center", justifyContent: "center", gap: "10px",
+    padding: "12px 16px", background: t.bgDeep, border: `1px solid ${t.borderMid}`,
+    borderRadius: "8px", cursor: "pointer", color: t.text2,
+    fontFamily: "inherit", fontSize: "13px", fontWeight: "600",
+  },
+}; }
