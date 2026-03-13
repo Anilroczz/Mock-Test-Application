@@ -339,9 +339,7 @@ export async function fetchQuizWithQuestions(quizId) {
     question: row.questions.question,
     options: row.questions.options,
     answer: row.questions.answer,
-    explanation: row.questions.explanation,
-    topic: row.questions.topic,
-    fingerprint: row.questions.fingerprint
+    explanation: row.questions.explanation
   }));
 
   return {
@@ -505,4 +503,107 @@ export async function fetchQuizAttempts(quizId) {
     pct:        Math.round((a.score / a.total) * 100),
     passed:     Math.round((a.score / a.total) * 100) >= 60,
   }));
+}
+
+/**
+ * Fetch all attempts for the current user on a specific quiz.
+ * Returns newest first.
+ */
+export async function fetchAttemptsForQuiz(userId, quizId) {
+  if (!userId || !quizId) return [];
+  const { data, error } = await supabase
+    .from("attempts")
+    .select(`
+      id, score, total, correct, incorrect, unanswered,
+      time_taken, tab_switches, submitted_at,
+      quizzes ( id, title, subject )
+    `)
+    .eq("user_id", userId)
+    .eq("quiz_id", quizId)
+    .order("submitted_at", { ascending: false });
+ 
+  if (error) throw error;
+  return data.map((a, idx, arr) => ({
+    id:          a.id,
+    score:       a.score,
+    total:       a.total,
+    correct:     a.correct,
+    incorrect:   a.incorrect,
+    unanswered:  a.unanswered,
+    timeTaken:   a.time_taken,
+    tabSwitches: a.tab_switches,
+    submittedAt: a.submitted_at,
+    quizId:      a.quizzes?.id,
+    quizTitle:   a.quizzes?.title,
+    quizSubject: a.quizzes?.subject,
+    pct:         Math.round((a.score / a.total) * 100),
+    passed:      Math.round((a.score / a.total) * 100) >= 60,
+    attemptNum:  arr.length - idx,   // #1 = first ever, #N = most recent
+  }));
+}
+ 
+/**
+ * Fetch a single attempt's full detail — metadata + every answer with
+ * the original question text, options, correct answer and explanation.
+ * Used for the Attempt Detail review page.
+ */
+export async function fetchAttemptDetail(attemptId) {
+  // 1. Attempt metadata
+  const { data: attempt, error: aErr } = await supabase
+    .from("attempts")
+    .select(`
+      id, score, total, correct, incorrect, unanswered,
+      time_taken, tab_switches, submitted_at,
+      quizzes ( id, title, subject, positive_marking, negative_marking )
+    `)
+    .eq("id", attemptId)
+    .single();
+ 
+  if (aErr) throw aErr;
+ 
+  // 2. All answers joined with question details, ordered by position
+  const { data: answers, error: ansErr } = await supabase
+    .from("attempt_answers")
+    .select(`
+      position, selected_answer, is_correct, is_flagged,
+      questions ( id, question, options, answer, explanation )
+    `)
+    .eq("attempt_id", attemptId)
+    .order("position", { ascending: true });
+ 
+  if (ansErr) throw ansErr;
+ 
+  const pct = Math.round((attempt.score / attempt.total) * 100);
+  return {
+    id:            attempt.id,
+    score:         attempt.score,
+    total:         attempt.total,
+    correct:       attempt.correct,
+    incorrect:     attempt.incorrect,
+    unanswered:    attempt.unanswered,
+    timeTaken:     attempt.time_taken,
+    tabSwitches:   attempt.tab_switches,
+    submittedAt:   attempt.submitted_at,
+    pct,
+    passed:        pct >= 60,
+    quizId:        attempt.quizzes?.id,
+    quizTitle:     attempt.quizzes?.title,
+    quizSubject:   attempt.quizzes?.subject,
+    positiveMarking: attempt.quizzes?.positive_marking,
+    negativeMarking: attempt.quizzes?.negative_marking,
+    answers: answers.map(a => ({
+      position:       a.position,
+      selectedAnswer: a.selected_answer,
+      isCorrect:      a.is_correct,
+      isFlagged:      a.is_flagged,
+      questionId:     a.questions?.id,
+      question:       a.questions?.question,
+      options:        a.questions?.options,
+      correctAnswer:  a.questions?.answer,
+      explanation:    a.questions?.explanation,
+      status:         a.selected_answer === null ? "unanswered"
+                    : a.is_correct              ? "correct"
+                    :                             "wrong",
+    })),
+  };
 }

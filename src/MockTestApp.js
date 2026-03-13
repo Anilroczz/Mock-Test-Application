@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from "react";
 import "./MockTestApp.css";
 import { saveQuiz, fetchQuizzes, fetchQuizWithQuestions, deleteQuiz } from "./supabase";
-import { saveAttempt, fetchMyAttempts, fetchQuizAttempts } from "./supabase";
+import { saveAttempt, fetchMyAttempts, fetchAttemptsForQuiz, fetchAttemptDetail } from "./supabase";
 import { signIn, signInWithGoogle, signUp, signOut, onAuthChange, fetchUserRole } from "./auth";
 
 // Theme Context
@@ -214,144 +214,11 @@ function Nav({ page, setPage, testsCount }) {
     </nav>
   );
 }
- 
- 
-// ─── Attempt History ─────────────────────────────────────────────────────────
-function AttemptHistory({ attempts }) {
-  const { t } = useTheme();
-  const isMobile = useIsMobile();
-  const [expanded, setExpanded] = useState(false);
-  const PREVIEW = 5;
-  const shown = expanded ? attempts : attempts.slice(0, PREVIEW);
- 
-  return (
-    <div style={{ marginTop: "48px" }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
-        <div>
-          <h2 style={{ fontSize: isMobile ? "20px" : "22px", fontWeight: "800", color: t.text1, margin: 0, letterSpacing: "-0.5px" }}>
-            My Attempt History
-          </h2>
-          <p style={{ fontSize: "13px", color: t.text4, margin: "4px 0 0", fontFamily: "'IBM Plex Mono', monospace" }}>
-            {attempts.length} attempt{attempts.length !== 1 ? "s" : ""} recorded
-          </p>
-        </div>
-        {attempts.length > PREVIEW && (
-          <button
-            onClick={() => setExpanded(e => !e)}
-            style={{
-              background: "none", border: `1px solid ${t.borderMid}`,
-              borderRadius: "8px", padding: "6px 12px", color: t.text3,
-              cursor: "pointer", fontFamily: "inherit", fontSize: "12px", flexShrink: 0,
-            }}
-          >
-            {expanded ? "Show less ▲" : `Show all ${attempts.length} ▼`}
-          </button>
-        )}
-      </div>
- 
-      {/* Cards */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {shown.map((a) => {
-          const dt = new Date(a.submittedAt);
-          const date = dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-          const time = dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-          const passColor = a.passed ? "#4ade80" : "#f87171";
- 
-          return (
-            <div key={a.id} style={{
-              background: t.bgCard,
-              border: `1px solid ${t.border}`,
-              borderLeft: `4px solid ${passColor}`,
-              borderRadius: "10px",
-              padding: "14px 16px",
-              display: "flex",
-              gap: "14px",
-              alignItems: "flex-start",
-            }}>
- 
-              {/* Score pill — fixed width, never shrinks */}
-              <div style={{
-                width: "52px", height: "52px", borderRadius: "50%",
-                background: a.passed ? "#4ade8012" : "#f8717112",
-                border: `2px solid ${passColor}55`,
-                display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center",
-                flexShrink: 0,
-              }}>
-                <span style={{ fontSize: "12px", fontWeight: "800", color: passColor, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>
-                  {a.pct}%
-                </span>
-                <span style={{ fontSize: "8px", color: passColor, textTransform: "uppercase", letterSpacing: "0.3px", fontWeight: "700", marginTop: "2px" }}>
-                  {a.passed ? "Pass" : "Fail"}
-                </span>
-              </div>
- 
-              {/* Right column — all rows stacked */}
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "4px" }}>
- 
-                {/* Row 1 — Test name */}
-                <div style={{
-                  fontSize: "14px", fontWeight: "700", color: t.text1,
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  lineHeight: 1.3,
-                }}>
-                  {a.quizTitle}
-                </div>
- 
-                {/* Row 2 — Subject */}
-                {a.quizSubject && (
-                  <div>
-                    <span style={{
-                      fontSize: "11px", color: "#6366f1",
-                      background: "#6366f115", border: "1px solid #6366f130",
-                      borderRadius: "4px", padding: "1px 7px", fontWeight: "600",
-                      display: "inline-block",
-                    }}>
-                      {a.quizSubject}
-                    </span>
-                  </div>
-                )}
- 
-                {/* Row 3 — Date & Time */}
-                <div style={{ fontSize: "12px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" }}>
-                  {date} · {time}
-                </div>
- 
-                {/* Row 4 — Stats */}
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "4px", alignItems: "baseline" }}>
-                  {[
-                    { value: a.correct,             label: "Correct",  color: "#4ade80" },
-                    { value: a.incorrect,            label: "Wrong",    color: "#f87171" },
-                    { value: a.unanswered,           label: "Skipped",  color: t.text3  },
-                    { value: formatTime(a.timeTaken), label: "Time",    color: "#6366f1" },
-                    ...(a.tabSwitches > 0 ? [{ value: a.tabSwitches, label: "Switches", color: "#facc15" }] : []),
-                  ].map(stat => (
-                    <div key={stat.label} style={{ display: "flex", alignItems: "baseline", gap: "3px" }}>
-                      <span style={{ fontSize: "14px", fontWeight: "800", color: stat.color, fontFamily: "'IBM Plex Mono', monospace" }}>
-                        {stat.value}
-                      </span>
-                      <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.3px" }}>
-                        {stat.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
- 
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
-function Dashboard({ tests, attempts = [], onStart, onDelete, loading, error }) {
+function Dashboard({ tests, onStart, onDelete, onViewAttempts, loading, error }) {
   const { t } = useTheme();
   const styles = getStyles(t);
-
   return (
     <div style={styles.page}>
       <div style={styles.dashHeader}>
@@ -362,7 +229,7 @@ function Dashboard({ tests, attempts = [], onStart, onDelete, loading, error }) 
           </p>
         </div>
       </div>
-
+ 
       {error && (
         <div style={styles.dbErrorBox}>
           <span style={styles.dbErrorIcon}>⚠</span>
@@ -371,8 +238,8 @@ function Dashboard({ tests, attempts = [], onStart, onDelete, loading, error }) 
             <p style={styles.dbErrorMsg}>{error}</p>
           </div>
         </div>
-      )} 
-
+      )}
+ 
       {loading ? (
         <div style={styles.loadingState}>
           <div style={styles.spinner} />
@@ -387,118 +254,429 @@ function Dashboard({ tests, attempts = [], onStart, onDelete, loading, error }) 
       ) : (
         <div style={styles.cardGrid}>
           {tests.map(test => (
-            <TestCard key={test.id} test={test} onStart={onStart} onDelete={onDelete} />
+            <TestCard key={test.id} test={test} onStart={onStart} onDelete={onDelete} onViewAttempts={onViewAttempts} />
           ))}
         </div>
       )}
-
-      {attempts.length > 0 && (
-        <AttemptHistory attempts={attempts} />
-      )}
-
     </div>
   );
 }
-
-function TestCard({ test, onStart, onDelete }) {
+ 
+function TestCard({ test, onStart, onDelete, onViewAttempts }) {
   const { t } = useTheme();
-  const { role } = useAuth();
+  const { user, role } = useAuth();
   const styles = getStyles(t);
   const [hovered, setHovered] = useState(false);
-  const [attempts, setAttempts] = useState(null);   // null=loading, []=none
-  const [showHistory, setShowHistory] = useState(false);
-
-  useEffect(() => {
-    fetchQuizAttempts(test.id)
-      .then(setAttempts)
-      .catch(() => setAttempts([]));
-  }, [test.id]);
+  const [attemptCount, setAttemptCount] = useState(null);  // null=loading
+  const [showChoice, setShowChoice] = useState(false);      // choice overlay
  
-  const best = attempts?.length
-    ? attempts.reduce((b, a) => (a.score > b.score ? a : b), attempts[0])
-    : null;
-  
+  useEffect(() => {
+    if (!user) return;
+    fetchAttemptsForQuiz(user.id, test.id)
+      .then(arr => setAttemptCount(arr.length))
+      .catch(() => setAttemptCount(0));
+  }, [test.id, user]);
+ 
+  const hasAttempts = attemptCount > 0;
+ 
+  function handleCardClick() {
+    if (hasAttempts) setShowChoice(true);
+    else onStart(test);
+  }
+ 
   return (
-    <div
-      style={{ ...styles.card, ...(hovered ? styles.cardHover : {}) }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div style={styles.cardTop}>
-        <span style={styles.cardSubject}>{test.subject}</span>
-        {/* <span style={styles.cardSubject}>{test.topic}</span> */}
-        {attempts !== null && attempts.length > 0 && (
-          <span style={{ fontSize: "11px", color: "#4ade80", background: "#4ade8015", border: "1px solid #4ade8030", borderRadius: "4px", padding: "2px 8px", fontWeight: "600" }}>
-            {attempts.length} attempt{attempts.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-
-      <h2 style={styles.cardTitle}>{test.title}</h2>
-      <div style={styles.cardMeta}>
-        <span style={styles.metaItem}>⏱ {Math.floor(test.duration / 60)} min</span>
-        <span style={styles.metaItem}>❓ {test.totalQuestions || test.questions.length} questions</span>
-        <span style={styles.metaItem}>📅 {test.createdOn}</span>
-      </div>
-
-      {/* Best score strip */}
-      {best && (
-        <div style={{ display: "flex", gap: "16px", padding: "10px 14px", background: t.bgDeep, borderRadius: "8px", marginBottom: "12px", alignItems: "center" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" }}>Best Score</span>
-            <span style={{ fontSize: "16px", fontWeight: "800", color: (best.score / best.total) >= 0.6 ? "#4ade80" : "#f87171", fontFamily: "'IBM Plex Mono', monospace" }}>
-              {best.score}/{best.total}
-            </span>
-          </div>
-          <div style={{ width: "1px", background: t.border, alignSelf: "stretch" }} />
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" }}>Last Attempt</span>
-            <span style={{ fontSize: "12px", color: t.text3 }}>
-              {new Date(attempts[0].submitted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-            </span>
+    <div style={{ position: "relative" }}>
+      {/* Choice overlay — shown when card clicked and attempts exist */}
+      {showChoice && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 10,
+          background: t.bgCard,
+          border: `1px solid ${t.borderMid}`,
+          borderRadius: "12px",
+          display: "flex", flexDirection: "column",
+          padding: "20px", gap: "12px",
+        }}>
+          <div style={{ fontSize: "13px", fontWeight: "700", color: t.text1, marginBottom: "4px" }}>
+            {test.title}
           </div>
           <button
-            onClick={() => setShowHistory(h => !h)}
-            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${t.borderMid}`, borderRadius: "6px", padding: "4px 10px", cursor: "pointer", color: t.text4, fontSize: "11px", fontFamily: "inherit" }}
+            onClick={() => { setShowChoice(false); onStart(test); }}
+            style={{ ...styles.startBtn, width: "100%", justifyContent: "center" }}
           >
-            {showHistory ? "Hide" : "History"}
+            Start New Attempt →
+          </button>
+          <button
+            onClick={() => { setShowChoice(false); onViewAttempts(test); }}
+            style={{
+              width: "100%", padding: "11px", borderRadius: "8px",
+              border: `1px solid ${t.borderMid}`, background: t.bgDeep,
+              color: t.text2, cursor: "pointer", fontFamily: "inherit",
+              fontSize: "13px", fontWeight: "600",
+            }}
+          >
+            View Past Attempts ({attemptCount})
+          </button>
+          <button
+            onClick={() => setShowChoice(false)}
+            style={{
+              background: "none", border: "none", color: t.text4,
+              cursor: "pointer", fontSize: "12px", fontFamily: "inherit",
+              padding: "4px",
+            }}
+          >
+            ✕ Cancel
           </button>
         </div>
       )}
  
-      {/* Attempt history list */}
-      {showHistory && attempts?.length > 0 && (
-        <div style={{ marginBottom: "12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "180px", overflowY: "auto" }}>
-          {attempts.map((a, i) => {
-            const pct = Math.round((a.score / a.total) * 100);
-            const passed = pct >= 60;
+      {/* Card */}
+      <div
+        style={{ ...styles.card, ...(hovered && !showChoice ? styles.cardHover : {}), cursor: "pointer" }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={handleCardClick}
+      >
+        <div style={styles.cardTop}>
+          <span style={styles.cardSubject}>{test.subject}</span>
+          {attemptCount > 0 && (
+            <span style={{ fontSize: "11px", color: "#4ade80", background: "#4ade8015", border: "1px solid #4ade8030", borderRadius: "4px", padding: "2px 8px", fontWeight: "600" }}>
+              {attemptCount} attempt{attemptCount !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+        <h2 style={styles.cardTitle}>{test.title}</h2>
+        <div style={styles.cardMeta}>
+          <span style={styles.metaItem}>⏱ {Math.floor(test.duration / 60)} min</span>
+          <span style={styles.metaItem}>❓ {test.totalQuestions || (test.questions?.length ?? 0)} questions</span>
+          <span style={styles.metaItem}>📅 {test.createdOn}</span>
+        </div>
+ 
+        <div style={{ ...styles.cardActions, pointerEvents: "none" }}>
+          <div style={{ ...styles.startBtn, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {hasAttempts ? "Retry / View Attempts" : "Start Test →"}
+          </div>
+          {role === "admin" && (
+            <div style={{ pointerEvents: "auto" }} onClick={e => e.stopPropagation()}>
+              <button style={styles.deleteBtn} onClick={() => onDelete(test.id)}>🗑</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+ 
+ 
+// ─── Quiz Attempts Page ───────────────────────────────────────────────────────
+function QuizAttemptsPage({ quiz, onBack, onViewDetail, onStartTest }) {
+  const { t } = useTheme();
+  const { user } = useAuth();
+  const isMobile = useIsMobile();
+  const [attempts, setAttempts] = useState(null);   // null = loading
+  const [error, setError] = useState("");
+ 
+  useEffect(() => {
+    if (!user) return;
+    fetchAttemptsForQuiz(user.id, quiz.id)
+      .then(setAttempts)
+      .catch(e => setError(e.message));
+  }, [quiz.id, user]);
+ 
+  const best = attempts?.length
+    ? attempts.reduce((b, a) => a.score > b.score ? a : b, attempts[0])
+    : null;
+ 
+  return (
+    <div>
+      {/* Back + header */}
+      <button onClick={onBack} style={{ background: "none", border: "none", color: t.text4, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: "0 0 20px", display: "flex", alignItems: "center", gap: "6px" }}>
+        ← Back to Dashboard
+      </button>
+ 
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px", flexWrap: "wrap", gap: "12px" }}>
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", color: "#6366f1", textTransform: "uppercase", marginBottom: "6px" }}>{quiz.subject}</div>
+          <h1 style={{ fontSize: isMobile ? "20px" : "26px", fontWeight: "800", color: t.text1, margin: 0, letterSpacing: "-0.5px" }}>{quiz.title}</h1>
+          <p style={{ color: t.text4, margin: "6px 0 0", fontSize: "13px", fontFamily: "'IBM Plex Mono', monospace" }}>
+            ⏱ {Math.floor(quiz.duration / 60)} min · ❓ {quiz.totalQuestions} questions
+          </p>
+        </div>
+        <button onClick={onStartTest} style={{ padding: "10px 22px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", border: "none", borderRadius: "8px", color: "white", fontFamily: "inherit", fontSize: "13px", fontWeight: "700", cursor: "pointer", flexShrink: 0 }}>
+          + New Attempt
+        </button>
+      </div>
+ 
+      {/* Best score summary bar */}
+      {best && (
+        <div style={{ display: "flex", gap: isMobile ? "16px" : "32px", padding: "16px 20px", background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "10px", marginBottom: "24px", flexWrap: "wrap" }}>
+          {[
+            { label: "Total Attempts", value: attempts.length, color: t.text1 },
+            { label: "Best Score", value: `${best.pct}%`, color: best.passed ? "#4ade80" : "#f87171" },
+            { label: "Best Correct", value: best.correct, color: "#4ade80" },
+            { label: "Latest", value: new Date(attempts[0].submittedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }), color: t.text3 },
+          ].map(s => (
+            <div key={s.label} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+              <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px" }}>{s.label}</span>
+              <span style={{ fontSize: "18px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace" }}>{s.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+ 
+      {/* Attempts list */}
+      {attempts === null && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "40px", color: t.text4, fontSize: "13px" }}>
+          <span style={{ width: "20px", height: "20px", borderRadius: "50%", border: "2px solid #6366f1", borderTop: "2px solid transparent", animation: "spin 0.8s linear infinite", display: "inline-block", marginRight: "10px" }} />
+          Loading attempts…
+        </div>
+      )}
+      {error && <div style={{ color: "#f87171", fontSize: "13px", padding: "20px" }}>Error: {error}</div>}
+      {attempts !== null && attempts.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: t.text4 }}>
+          <div style={{ fontSize: "40px", marginBottom: "12px" }}>📋</div>
+          <p style={{ fontSize: "14px" }}>No attempts yet. Start your first attempt!</p>
+        </div>
+      )}
+ 
+      {attempts?.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {attempts.map(a => {
+            const dt = new Date(a.submittedAt);
+            const date = dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+            const time = dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+            const passColor = a.passed ? "#4ade80" : "#f87171";
             return (
-              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 12px", background: t.bgDeep, borderRadius: "6px", fontSize: "12px" }}>
-                <span style={{ color: t.text4, width: "20px", flexShrink: 0 }}>#{attempts.length - i}</span>
-                <span style={{ fontWeight: "700", color: passed ? "#4ade80" : "#f87171", fontFamily: "'IBM Plex Mono', monospace", minWidth: "52px" }}>
-                  {a.score}/{a.total}
-                </span>
-                <span style={{ color: t.text4, flex: 1 }}>
-                  {a.correct}✓ {a.incorrect}✗ {a.unanswered}—
-                </span>
-                <span style={{ color: t.text4 }}>⏱ {formatTime(a.time_taken)}</span>
-                <span style={{ color: t.text4 }}>
-                  {new Date(a.submitted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                </span>
+              <div
+                key={a.id}
+                onClick={() => onViewDetail(a)}
+                style={{
+                  background: t.bgCard, border: `1px solid ${t.border}`,
+                  borderLeft: `4px solid ${passColor}`, borderRadius: "10px",
+                  padding: "14px 18px", display: "flex", alignItems: "center",
+                  gap: "16px", cursor: "pointer", transition: "all 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = t.borderMid; e.currentTarget.style.transform = "translateX(2px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.transform = "none"; }}
+              >
+                {/* Score pill */}
+                <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: a.passed ? "#4ade8012" : "#f8717112", border: `2px solid ${passColor}55`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ fontSize: "12px", fontWeight: "800", color: passColor, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{a.pct}%</span>
+                  <span style={{ fontSize: "8px", color: passColor, textTransform: "uppercase", fontWeight: "700", marginTop: "2px" }}>{a.passed ? "Pass" : "Fail"}</span>
+                </div>
+ 
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "13px", fontWeight: "700", color: t.text1, marginBottom: "3px" }}>
+                    Attempt #{a.attemptNum}
+                  </div>
+                  <div style={{ fontSize: "12px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace", marginBottom: "5px" }}>
+                    {date} · {time}
+                  </div>
+                  <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                    {[
+                      { v: a.correct,              label: "Correct",  c: "#4ade80" },
+                      { v: a.incorrect,             label: "Wrong",    c: "#f87171" },
+                      { v: a.unanswered,            label: "Skipped",  c: t.text3  },
+                      { v: formatTime(a.timeTaken), label: "Time",     c: "#6366f1" },
+                    ].map(s => (
+                      <div key={s.label} style={{ display: "flex", alignItems: "baseline", gap: "3px" }}>
+                        <span style={{ fontSize: "13px", fontWeight: "800", color: s.c, fontFamily: "'IBM Plex Mono', monospace" }}>{s.v}</span>
+                        <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase" }}>{s.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+ 
+                <span style={{ color: t.text4, fontSize: "16px", flexShrink: 0 }}>›</span>
               </div>
             );
           })}
         </div>
       )}
-
-      <div style={styles.cardActions}>
-        <button style={styles.startBtn} onClick={() => onStart(test)}>
-          {attempts?.length ? "Retake Test →" : "Start Test →"}
-        </button>
-        {/* <button style={styles.deleteBtn} onClick={() => onDelete(test.id)}>🗑</button> */}
-        {role === "admin" && (
-          <button style={styles.deleteBtn} onClick={() => onDelete(test.id)}>🗑</button>
-        )}
+    </div>
+  );
+}
+ 
+// ─── Attempt Detail Page ──────────────────────────────────────────────────────
+function AttemptDetailPage({ attempt, onBack }) {
+  const { t } = useTheme();
+  const isMobile = useIsMobile();
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("all");    // all | correct | wrong | unanswered | flagged
+  const [expandedIdx, setExpandedIdx] = useState(null);
+ 
+  useEffect(() => {
+    fetchAttemptDetail(attempt.id)
+      .then(setDetail)
+      .catch(e => setError(e.message));
+  }, [attempt.id]);
+ 
+  if (error) return (
+    <div>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: t.text4, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: "0 0 20px" }}>← Back</button>
+      <div style={{ color: "#f87171", fontSize: "13px" }}>Error loading attempt: {error}</div>
+    </div>
+  );
+ 
+  if (!detail) return (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: "80px", flexDirection: "column", gap: "16px" }}>
+      <span style={{ width: "32px", height: "32px", borderRadius: "50%", border: "3px solid #6366f1", borderTop: "3px solid transparent", animation: "spin 0.8s linear infinite", display: "inline-block" }} />
+      <span style={{ color: t.text4, fontSize: "13px" }}>Loading attempt…</span>
+    </div>
+  );
+ 
+  const dt = new Date(detail.submittedAt);
+  const dateStr = dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const timeStr = dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const passColor = detail.passed ? "#4ade80" : "#f87171";
+ 
+  const filterCounts = {
+    all:        detail.answers.length,
+    correct:    detail.answers.filter(a => a.status === "correct").length,
+    wrong:      detail.answers.filter(a => a.status === "wrong").length,
+    unanswered: detail.answers.filter(a => a.status === "unanswered").length,
+    flagged:    detail.answers.filter(a => a.isFlagged).length,
+  };
+ 
+  const filtered = detail.answers.filter(a => {
+    if (filter === "all")        return true;
+    if (filter === "correct")    return a.status === "correct";
+    if (filter === "wrong")      return a.status === "wrong";
+    if (filter === "unanswered") return a.status === "unanswered";
+    if (filter === "flagged")    return a.isFlagged;
+    return true;
+  });
+ 
+  return (
+    <div>
+      {/* Back */}
+      <button onClick={onBack} style={{ background: "none", border: "none", color: t.text4, cursor: "pointer", fontSize: "13px", fontFamily: "inherit", padding: "0 0 20px", display: "flex", alignItems: "center", gap: "6px" }}>
+        ← Back to Attempts
+      </button>
+ 
+      {/* Header */}
+      <div style={{ marginBottom: "24px" }}>
+        <div style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "2px", color: "#6366f1", textTransform: "uppercase", marginBottom: "4px" }}>{detail.quizSubject}</div>
+        <h1 style={{ fontSize: isMobile ? "18px" : "24px", fontWeight: "800", color: t.text1, margin: "0 0 4px", letterSpacing: "-0.5px" }}>{detail.quizTitle}</h1>
+        <div style={{ fontSize: "12px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" }}>
+          {dateStr} · {timeStr} · Attempt #{attempt.attemptNum}
+        </div>
+      </div>
+ 
+      {/* Score summary */}
+      <div style={{ display: "flex", gap: "16px", padding: "16px 20px", background: t.bgCard, border: `1px solid ${t.border}`, borderLeft: `4px solid ${passColor}`, borderRadius: "10px", marginBottom: "28px", alignItems: "center", flexWrap: "wrap" }}>
+        {/* Big score */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "64px" }}>
+          <span style={{ fontSize: "28px", fontWeight: "800", color: passColor, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{detail.pct}%</span>
+          <span style={{ fontSize: "10px", color: passColor, textTransform: "uppercase", fontWeight: "700", marginTop: "3px" }}>{detail.passed ? "Passed" : "Failed"}</span>
+        </div>
+        <div style={{ width: "1px", background: t.border, alignSelf: "stretch", flexShrink: 0 }} />
+        {[
+          { label: "Score",     value: `${detail.score}/${detail.total}`, color: passColor },
+          { label: "Correct",   value: detail.correct,   color: "#4ade80" },
+          { label: "Wrong",     value: detail.incorrect,  color: "#f87171" },
+          { label: "Skipped",   value: detail.unanswered, color: t.text3  },
+          { label: "Time",      value: formatTime(detail.timeTaken), color: "#6366f1" },
+        ].map(s => (
+          <div key={s.label} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+            <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.8px" }}>{s.label}</span>
+            <span style={{ fontSize: "16px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace" }}>{s.value}</span>
+          </div>
+        ))}
+      </div>
+ 
+      {/* Filter bar */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
+        {[
+          { key: "all",        label: `All (${filterCounts.all})` },
+          { key: "correct",    label: `✓ Correct (${filterCounts.correct})` },
+          { key: "wrong",      label: `✗ Wrong (${filterCounts.wrong})` },
+          { key: "unanswered", label: `— Skipped (${filterCounts.unanswered})` },
+          ...(filterCounts.flagged > 0 ? [{ key: "flagged", label: `🚩 Flagged (${filterCounts.flagged})` }] : []),
+        ].map(f => (
+          <button
+            key={f.key}
+            onClick={() => { setFilter(f.key); setExpandedIdx(null); }}
+            style={{
+              padding: "6px 14px", borderRadius: "20px", fontFamily: "inherit", fontSize: "12px", cursor: "pointer",
+              border: filter === f.key ? "1px solid #6366f1" : `1px solid ${t.borderMid}`,
+              background: filter === f.key ? "#6366f115" : "transparent",
+              color: filter === f.key ? "#6366f1" : t.text3,
+              fontWeight: filter === f.key ? "700" : "400",
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+ 
+      {/* Question review list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {filtered.map((a, i) => {
+          const expanded = expandedIdx === i;
+          const statusColor = a.status === "correct" ? "#4ade80" : a.status === "wrong" ? "#f87171" : t.text4;
+          const statusIcon  = a.status === "correct" ? "✓" : a.status === "wrong" ? "✗" : "—";
+ 
+          return (
+            <div key={a.position} style={{ background: t.bgCard, border: `1px solid ${a.status === "correct" ? "#4ade8030" : a.status === "wrong" ? "#f8717130" : t.border}`, borderRadius: "10px", overflow: "hidden" }}>
+              {/* Question row — click to expand */}
+              <div
+                onClick={() => setExpandedIdx(expanded ? null : i)}
+                style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", cursor: "pointer" }}
+              >
+                <span style={{ fontSize: "15px", fontWeight: "800", color: statusColor, width: "20px", flexShrink: 0, textAlign: "center" }}>{statusIcon}</span>
+                <span style={{ fontSize: "12px", color: t.text4, width: "32px", flexShrink: 0, fontFamily: "'IBM Plex Mono', monospace" }}>Q{a.position}</span>
+                {a.isFlagged && <span style={{ fontSize: "11px", flexShrink: 0 }}>🚩</span>}
+                <span style={{ flex: 1, fontSize: "13px", color: t.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{a.question}</span>
+                <span style={{ color: t.text4, fontSize: "14px", flexShrink: 0 }}>{expanded ? "▲" : "▼"}</span>
+              </div>
+ 
+              {/* Expanded detail */}
+              {expanded && (
+                <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${t.border}` }}>
+                  {/* Options */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "12px" }}>
+                    {a.options.map((opt, oi) => {
+                      const isCorrect = opt === a.correctAnswer;
+                      const isSelected = opt === a.selectedAnswer;
+                      return (
+                        <div key={oi} style={{
+                          display: "flex", alignItems: "center", gap: "10px",
+                          padding: "10px 14px", borderRadius: "8px",
+                          background: isCorrect ? "#4ade8015" : isSelected && !isCorrect ? "#f8717115" : t.bgDeep,
+                          border: `1px solid ${isCorrect ? "#4ade8050" : isSelected && !isCorrect ? "#f8717150" : t.border}`,
+                        }}>
+                          <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: isCorrect ? "#4ade8030" : isSelected && !isCorrect ? "#f8717130" : t.bgHover, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "700", color: isCorrect ? "#4ade80" : isSelected && !isCorrect ? "#f87171" : t.text4, flexShrink: 0 }}>
+                            {String.fromCharCode(65 + oi)}
+                          </span>
+                          <span style={{ flex: 1, fontSize: "13px", color: isCorrect ? "#4ade80" : isSelected && !isCorrect ? "#f87171" : t.text2 }}>{opt}</span>
+                          {isCorrect && <span style={{ fontSize: "11px", color: "#4ade80", fontWeight: "700", flexShrink: 0 }}>✓ Correct</span>}
+                          {isSelected && !isCorrect && <span style={{ fontSize: "11px", color: "#f87171", fontWeight: "700", flexShrink: 0 }}>✗ Your answer</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+ 
+                  {/* Unanswered notice */}
+                  {a.status === "unanswered" && (
+                    <div style={{ marginTop: "12px", padding: "10px 14px", background: "#64748b15", border: `1px solid #64748b30`, borderRadius: "8px", fontSize: "12px", color: t.text4 }}>
+                      — This question was not attempted
+                    </div>
+                  )}
+ 
+                  {/* Explanation */}
+                  {a.explanation && a.status !== "correct" && (
+                    <div style={{ marginTop: "12px", padding: "12px 14px", background: "#6366f110", border: `1px solid #6366f130`, borderRadius: "8px" }}>
+                      <div style={{ fontSize: "10px", fontWeight: "700", color: "#6366f1", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>💡 Explanation</div>
+                      <div style={{ fontSize: "13px", color: t.text2, lineHeight: 1.6 }}>{a.explanation}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1487,6 +1665,8 @@ export default function MockTestApp() {
   const [attempts, setAttempts] = useState([]);
   const [page, setPage] = useState("dashboard");
   const [activeTest, setActiveTest] = useState(null);
+  const [activeQuiz, setActiveQuiz] = useState(null);   // quiz for per-quiz attempts page
+  const [activeAttempt, setActiveAttempt] = useState(null); // attempt detail
   const [loading, setLoading] = useState(false);
   const [dbError, setDbError] = useState("");
 
@@ -1593,6 +1773,27 @@ export default function MockTestApp() {
     setPage("dashboard");
   }
 
+  function handleViewAttempts(quiz) {
+    setActiveQuiz(quiz);
+    setPage("quiz-attempts");
+  }
+ 
+  function handleViewAttemptDetail(attempt) {
+    setActiveAttempt(attempt);
+    setPage("attempt-detail");
+  }
+ 
+  function handleBackToQuizAttempts() {
+    setActiveAttempt(null);
+    setPage("quiz-attempts");
+  }
+ 
+  function handleBackToDashboard() {
+    setActiveQuiz(null);
+    setActiveAttempt(null);
+    setPage("dashboard");
+  }
+
   // ── Context values ─────────────────────────────────────────────────────────
   const themeValue = { t, isDark, toggle: toggleTheme };
   const authValue  = { user, role, handleSignOut };
@@ -1637,6 +1838,36 @@ export default function MockTestApp() {
     );
   }
 
+  if (page === "quiz-attempts" && activeQuiz) {
+    return appShell(
+      <>
+        <Nav page={page} setPage={setPage} testsCount={tests.length} />
+        <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" }}>
+          <QuizAttemptsPage
+            quiz={activeQuiz}
+            onBack={handleBackToDashboard}
+            onViewDetail={handleViewAttemptDetail}
+            onStartTest={() => handleStart(activeQuiz)}
+          />
+        </main>
+      </>
+    );
+  }
+ 
+  if (page === "attempt-detail" && activeAttempt) {
+    return appShell(
+      <>
+        <Nav page={page} setPage={setPage} testsCount={tests.length} />
+        <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "clamp(16px, 4vw, 40px) clamp(12px, 4vw, 32px)" }}>
+          <AttemptDetailPage
+            attempt={activeAttempt}
+            onBack={handleBackToQuizAttempts}
+          />
+        </main>
+      </>
+    );
+  }
+
   return appShell(
     <>
       <Nav page={page} setPage={setPage} testsCount={tests.length} />
@@ -1647,6 +1878,7 @@ export default function MockTestApp() {
               attempts={attempts}
               onStart={handleStart}
               onDelete={handleDelete}
+              onViewAttempts={handleViewAttempts}
               loading={loading}
               error={dbError}
             />
@@ -1680,11 +1912,11 @@ function getStyles(t) { return {
   nav: {
     display: "flex", alignItems: "center", justifyContent: "space-between",
     padding: "0 clamp(12px, 4vw, 32px)", height: "56px",
-    overflow: "hidden",
     background: t.bgCard, borderBottom: `1px solid ${t.border}`,
-    position: "sticky", top: 0, zIndex: 100
+    position: "sticky", top: 0, zIndex: 100,
+    overflowY: "visible",
   },
-  navBrand: { display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" },
+  navBrand: { display: "flex", alignItems: "center", gap: "12px", cursor: "pointer", overflow: "hidden", minWidth: 0 },
   navLogo: {
     width: "32px", height: "32px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
     display: "flex", alignItems: "center", justifyContent: "center",
