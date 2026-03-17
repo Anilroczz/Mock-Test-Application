@@ -339,7 +339,8 @@ export async function fetchQuizWithQuestions(quizId) {
     question: row.questions.question,
     options: row.questions.options,
     answer: row.questions.answer,
-    explanation: row.questions.explanation
+    explanation: row.questions.explanation,
+    subject: row.questions.subject || null,
   }));
 
   return {

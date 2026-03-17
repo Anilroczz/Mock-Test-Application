@@ -887,7 +887,7 @@ function SchemaReference() {
 // }
 
 // ─── Test Interface ───────────────────────────────────────────────────────────
-function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
+function TestInterface({ test, onFinish, onBack, onAttemptSaved, onRetake}) {
   const { t } = useTheme();
   const styles = getStyles(t);
   // Shuffle once on mount, never again
@@ -897,6 +897,7 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(shuffledTest.duration);
   const [submitted, setSubmitted] = useState(false);
+  const [fsExited, setFsExited] = useState(false); // gate — only show Results after FS is gone
   const [flagged, setFlagged] = useState(new Set());
   const [showQNav, setShowQNav] = useState(false);
   const isMobile = useIsMobile();
@@ -922,7 +923,9 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
     };
     enter();
     return () => {
+      // Always exit fullscreen when TestInterface unmounts (submit or back)
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else if (document.webkitFullscreenElement) document.webkitExitFullscreen?.().catch(() => {});
     };
   }, [isMobile]);
 
@@ -992,11 +995,21 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
   }, [submitted]);
 
   // ── Timer ─────────────────────────────────────────────────────────────────
-  const handleSubmit = useCallback(() => setSubmitted(true), []);
+  const handleSubmit = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (document.webkitFullscreenElement) {
+        await document.webkitExitFullscreen?.();
+      }
+    } catch (_) {}
+    setFsExited(true);
+    setSubmitted(true);
+  }, []);
 
   useEffect(() => {
     if (submitted || timeLeft <= 0) {
-      if (timeLeft <= 0 && !submitted) handleSubmit();
+      if (timeLeft <= 0 && !submitted) handleSubmit(); // handleSubmit is async and awaits fullscreen exit internally
       return;
     }
     const t = setTimeout(() => setTimeLeft(p => p - 1), 1000);
@@ -1013,6 +1026,10 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
   };
 
   if (submitted) {
+    // Show a brief blank screen while waiting for fullscreen to fully exit
+    if (!fsExited && document.fullscreenElement) {
+      return <div style={{ minHeight: "100vh", background: "#0a0f1e" }} />;
+    }
     return (
       <Results
         test={shuffledTest}
@@ -1021,6 +1038,7 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
         flagged={flagged}
         tabSwitches={tabWarnings}
         onBack={onBack}
+        onRetake={onRetake}
         onAttemptSaved={onAttemptSaved}
       />
     );
@@ -1258,150 +1276,302 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved  }) {
 }
 
 // ─── Results ──────────────────────────────────────────────────────────────────
-function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onAttemptSaved }) {
+function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onRetake, onAttemptSaved }) {
   const { t } = useTheme();
   const { user } = useAuth();
-  const styles = getStyles(t);
-  const [expandedIdx, setExpandedIdx] = useState(null);
-  const [saveStatus, setSaveStatus] = useState("saving"); // "saving" | "saved" | "error"
   const isMobile = useIsMobile();
-
-  let correctquetions = 0;
-  let wrongquestions = 0;
-  let unansweredquestions = 0;
-
+  const [expandedIdx, setExpandedIdx] = useState(null);
+  const [saveStatus, setSaveStatus] = useState("saving");
+  const [filter, setFilter] = useState("all"); // all | correct | wrong | unanswered | flagged
+ 
+  // ── Score calculations ──────────────────────────────────────────────────────
+  let nCorrect = 0, nWrong = 0, nUnanswered = 0;
   const score = test.questions.reduce((acc, q, i) => {
-    if (!answers[i]) { ++unansweredquestions; return acc; }
-    if (answers[i] === q.answer) { ++correctquetions; return acc + test.positiveMarking; }
-    ++wrongquestions;
+    if (!answers[i])            { ++nUnanswered; return acc; }
+    if (answers[i] === q.answer){ ++nCorrect;    return acc + test.positiveMarking; }
+    ++nWrong;
     return acc - test.negativeMarking;
   }, 0);
-
-  const total = test.questions.length;
-  const pct = Math.round((score / total) * 100);
-  const passed = pct >= 60;
-
-  // ── Save attempt once on mount ─────────────────────────────────────────────
+ 
+  const total      = test.questions.length;
+  const pct        = Math.round((score / total) * 100);
+  const passed     = pct >= 60;
+  const attempted  = nCorrect + nWrong;
+  const accuracy   = attempted > 0 ? Math.round((nCorrect / attempted) * 100) : 0;
+  const avgTime    = attempted > 0 ? Math.round(timeTaken / total) : 0;
+  const nFlagged   = flagged instanceof Set ? flagged.size : 0;
+  const passColor  = passed ? "#4ade80" : "#f87171";
+ 
+  // ── Save once on mount ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) { setSaveStatus("error"); return; }
     saveAttempt({
-      quizId:      test.id,
-      userId:      user.id,
-      questions:   test.questions,
-      answers,
-      flagged:     flagged ?? new Set(),
-      score,
-      correct:     correctquetions,
-      incorrect:   wrongquestions,
-      unanswered:  unansweredquestions,
-      timeTaken,
-      tabSwitches: tabSwitches ?? 0,
+      quizId: test.id, userId: user.id, questions: test.questions,
+      answers, flagged: flagged ?? new Set(), score,
+      correct: nCorrect, incorrect: nWrong, unanswered: nUnanswered,
+      timeTaken, tabSwitches: tabSwitches ?? 0,
     })
       .then(() => { setSaveStatus("saved"); onAttemptSaved?.(); })
       .catch(() => setSaveStatus("error"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
+ 
+  // ── Filter logic ────────────────────────────────────────────────────────────
+  const filteredQuestions = test.questions.map((q, i) => ({ q, i })).filter(({ q, i }) => {
+    const userAns = answers[i];
+    const isCorrect   = userAns === q.answer;
+    const isUnanswered = !userAns;
+    const isFlaggedQ  = flagged instanceof Set ? flagged.has(i) : false;
+    if (filter === "correct")    return isCorrect;
+    if (filter === "wrong")      return !isUnanswered && !isCorrect;
+    if (filter === "unanswered") return isUnanswered;
+    if (filter === "flagged")    return isFlaggedQ;
+    return true;
+  });
+ 
+  const filterCounts = {
+    all:        total,
+    correct:    nCorrect,
+    wrong:      nWrong,
+    unanswered: nUnanswered,
+    flagged:    nFlagged,
+  };
+ 
   return (
-    <div style={{ ...styles.resultsWrap, ...(isMobile ? styles.resultsWrapMobile : {}) }}>
-      <div style={{ ...styles.resultsSummary, ...(isMobile ? styles.resultsSummaryMobile : {}) }}>
-        <div style={styles.scoreCircleWrap}>
-          <svg width={isMobile ? "120" : "180"} height={isMobile ? "120" : "180"} viewBox="0 0 140 140">
-            <circle cx="70" cy="70" r="58" fill="none" stroke="#1e293b" strokeWidth="10" />
-            <circle
-              cx="70" cy="70" r="58"
-              fill="none"
-              stroke={passed ? "#4ade80" : "#f87171"}
-              strokeWidth="10"
-              strokeDasharray={`${2 * Math.PI * 58}`}
-              strokeDashoffset={`${2 * Math.PI * 58 * (1 - pct / 100)}`}
-              strokeLinecap="round"
-              transform="rotate(-90 70 70)"
-              style={{ transition: "stroke-dashoffset 1s ease" }}
-            />
-          </svg>
-          <div style={styles.scoreInner}>
-            <span style={{ ...styles.scoreNum, color: passed ? "#4ade80" : "#f87171", ...(isMobile ? { fontSize: "20px" } : {}) }}>{score}/{total}</span>
+    <div style={{ minHeight: "100vh", background: t.bg }}>
+ 
+      {/* ── Results Nav ── */}
+      <nav style={{
+        position: "sticky", top: 0, zIndex: 100,
+        background: t.bgCard, borderBottom: `1px solid ${t.border}`,
+        height: "56px", display: "flex", alignItems: "center",
+        padding: "0 clamp(12px, 4vw, 32px)", gap: "12px",
+      }}>
+        {/* Logo + brand */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+          <div style={{ width: "30px", height: "30px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "bold", color: "white" }}>▲</div>
+          {!isMobile && <span style={{ fontSize: "14px", fontWeight: "700", letterSpacing: "3px", color: t.text1 }}>EXAMFORGE</span>}
+        </div>
+ 
+        {/* Divider */}
+        <div style={{ width: "1px", height: "28px", background: t.border, flexShrink: 0 }} />
+ 
+        {/* Test name — truncated */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "11px", color: t.text4, textTransform: "uppercase", letterSpacing: "1px", lineHeight: 1 }}>Results</div>
+          <div style={{ fontSize: "13px", fontWeight: "700", color: t.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: "2px" }}>{test.title}</div>
+        </div>
+ 
+        {/* Save status */}
+        <div style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+          {saveStatus === "saving" && <>
+            <span style={{ width: "8px", height: "8px", borderRadius: "50%", border: "2px solid #6366f1", borderTop: "2px solid transparent", display: "inline-block", animation: "spin 0.8s linear infinite" }} />
+            {!isMobile && <span style={{ color: t.text4 }}>Saving…</span>}
+          </>}
+          {saveStatus === "saved"  && <span style={{ color: "#4ade80" }}>✓ {!isMobile ? "Result saved" : ""}</span>}
+          {saveStatus === "error"  && <span style={{ color: "#f87171" }}>⚠ {!isMobile ? "Could not save" : ""}</span>}
+        </div>
+ 
+        {/* Nav action buttons */}
+        <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+          <button
+            onClick={onBack}
+            style={{ padding: isMobile ? "7px 10px" : "7px 16px", borderRadius: "8px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: "pointer", fontFamily: "inherit", fontSize: "12px", fontWeight: "600", whiteSpace: "nowrap" }}
+          >
+            {isMobile ? "🏠" : "← Dashboard"}
+          </button>
+          {onRetake && (
+            <button
+              onClick={onRetake}
+              style={{ padding: isMobile ? "7px 10px" : "7px 16px", borderRadius: "8px", border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", cursor: "pointer", fontFamily: "inherit", fontSize: "12px", fontWeight: "700", whiteSpace: "nowrap" }}
+            >
+              {isMobile ? "↺" : "↺ Retake Test"}
+            </button>
+          )}
+        </div>
+      </nav>
+ 
+      {/* ── Page content ── */}
+      <div style={{ maxWidth: "860px", margin: "0 auto", padding: isMobile ? "16px" : "28px 24px" }}>
+ 
+      {/* ── Score card ── */}
+      <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "16px", padding: isMobile ? "20px 16px" : "28px 32px", marginBottom: "24px" }}>
+ 
+        {/* Title row */}
+        <div style={{ marginBottom: "20px" }}>
+          <h1 style={{ fontSize: isMobile ? "20px" : "24px", fontWeight: "800", color: t.text1, margin: 0, letterSpacing: "-0.5px" }}>
+            Overall Performance Summary
+          </h1>
+          {/* <p style={{ color: t.text4, margin: "4px 0 0", fontSize: "13px", fontFamily: "'IBM Plex Mono', monospace" }}>{test.title}</p> */}
+        </div>
+ 
+        {/* Score circle + stats — side by side desktop, stacked mobile */}
+        {/* The circle diameter is set to exactly match 2 stat rows + gap between them */}
+        <div style={{ display: "flex", gap: "24px", alignItems: "stretch", flexDirection: isMobile ? "column" : "row" }}>
+ 
+          {/* Score ring — diameter = (2 × ROW_H) + GAP = (76 × 2) + 10 = 162px */}
+          <div style={{ position: "relative", flexShrink: 0, width: isMobile ? "100%" : "162px", ...(isMobile ? { display: "flex", justifyContent: "center", paddingBottom: "4px" } : {}) }}>
+            <svg width="162" height="162" viewBox="0 0 162 162" style={{ display: "block", ...(isMobile ? { margin: "0 auto" } : {}) }}>
+              <circle cx="81" cy="81" r="68" fill="none" stroke={t.bgDeep} strokeWidth="11" />
+              <circle cx="81" cy="81" r="68" fill="none" stroke={passColor} strokeWidth="11"
+                strokeDasharray={`${2 * Math.PI * 68}`}
+                strokeDashoffset={`${2 * Math.PI * 68 * (1 - Math.min(pct, 100) / 100)}`}
+                strokeLinecap="round" transform="rotate(-90 81 81)"
+                style={{ transition: "stroke-dashoffset 1.2s ease" }}
+              />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: "24px", fontWeight: "800", color: passColor, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{score}</span>
+              <span style={{ fontSize: "12px", color: t.text4, marginTop: "4px" }}>/ {total}</span>
+              {/* <span style={{ fontSize: "13px", fontWeight: "700", color: passColor, marginTop: "4px" }}>{passed ? "PASS" : "FAIL"}</span> */}
+            </div>
+          </div>
+ 
+          {/* Stats grid — 2 rows × 4 cols, each box has fixed height so rows are uniform */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "10px" }}>
+ 
+            {/* Row 1 — Performance metrics (height: 76px) */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+              {[
+                { label: "Percentage",     value: `${pct}%`,             color: passColor },
+                { label: "Accuracy",       value: `${accuracy}%`,        color: "#6366f1" },
+                { label: "Total Time",     value: formatTime(timeTaken), color: "#6366f1" },
+                { label: "Avg Time", value: `${avgTime}s`,         color: t.text2   },
+              ].map(s => (
+                <div key={s.label} style={{
+                  background: t.bgDeep, borderRadius: "10px",
+                  height: "76px", display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center", gap: "5px",
+                  padding: "0 6px", textAlign: "center",
+                }}>
+                  <span style={{ fontSize: isMobile ? "15px" : "18px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{s.value}</span>
+                  <span style={{ fontSize: "9px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.6px", whiteSpace: "nowrap" }}>{s.label}</span>
+                </div>
+              ))}
+            </div>
+ 
+            {/* Row 2 — Question counts with marks pills (height: 76px) */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+              {[
+                { label: "Correct",   value: nCorrect,    color: "#4ade80", bg: "#4ade8010", border: "#4ade8025", pill: `↑ +${test.positiveMarking}`,  pillColor: "#4ade80", pillBg: "#4ade8020", pillBorder: "#4ade8040" },
+                { label: "Incorrect", value: nWrong,      color: "#f87171", bg: "#f8717110", border: "#f8717125", pill: `↓ −${test.negativeMarking}`,  pillColor: "#f87171", pillBg: "#f8717120", pillBorder: "#f8717140" },
+                { label: "Skipped",   value: nUnanswered, color: t.text3,   bg: t.bgDeep,   border: t.border,    pill: "— No mark",                    pillColor: t.text4,   pillBg: t.bgHover,  pillBorder: t.borderMid  },
+                { label: "Flagged",   value: nFlagged,    color: "#facc15", bg: "#facc1510", border: "#facc1525", pill: "🚩 Marked",                    pillColor: "#facc15", pillBg: "#facc1520", pillBorder: "#facc1540" },
+              ].map(s => (
+                <div key={s.label} style={{
+                  background: s.bg, border: `1px solid ${s.border}`, borderRadius: "10px",
+                  height: "76px", display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center", gap: "4px",
+                  padding: "0 6px", textAlign: "center",
+                }}>
+                  <span style={{ fontSize: isMobile ? "15px" : "18px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{s.value}</span>
+                  <span style={{ fontSize: "9px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.6px" }}>{s.label}</span>
+                  <span style={{ fontSize: "9px", fontWeight: "700", color: s.pillColor, background: s.pillBg, border: `1px solid ${s.pillBorder}`, borderRadius: "20px", padding: "1px 7px", whiteSpace: "nowrap" }}>{s.pill}</span>
+                </div>
+              ))}
+            </div>
+ 
           </div>
         </div>
-
-        <div style={styles.summaryInfo}>
-          <h1 style={{ ...styles.resultsTitle, ...(isMobile ? { fontSize: "20px" } : {}) }}>{passed ? "Well done! 🎉" : "Keep practicing 💪"}</h1>
-          <p style={styles.resultsSub}>{test.title}</p>
-
-          <div style={{ marginBottom: "16px" }}>
-            {saveStatus === "saving" && (
-              <span style={{ fontSize: "12px", color: t.text4, display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ width: "10px", height: "10px", borderRadius: "50%", border: "2px solid #6366f1", borderTop: "2px solid transparent", display: "inline-block", animation: "spin 0.8s linear infinite" }} />
-                Saving result…
-              </span>
-            )}
-            {saveStatus === "saved" && (
-              <span style={{ fontSize: "12px", color: "#4ade80", display: "flex", alignItems: "center", gap: "6px" }}>
-                ✓ Result saved
-              </span>
-            )}
-            {saveStatus === "error" && (
-              <span style={{ fontSize: "12px", color: "#f87171", display: "flex", alignItems: "center", gap: "6px" }}>
-                ⚠ Could not save result
-              </span>
-            )}
-          </div>
-
-          <div style={{ ...styles.summaryStats, ...(isMobile ? styles.summaryStatsMobile : {}) }}>
-            <StatBox label="Correct" value={correctquetions} color="#4ade80" isMobile={isMobile} />
-            <StatBox label="Incorrect" value={wrongquestions} color="#f87171" isMobile={isMobile} />
-            <StatBox label="Unanswered" value={unansweredquestions} color="#c9d0ccff" isMobile={isMobile} />
-            <StatBox label="Time Taken" value={formatTime(timeTaken)} color="#6366f1" isMobile={isMobile} />
-          </div>
-          <button style={{ ...styles.backBtn, ...(isMobile ? { width: "100%" } : {}) }} onClick={onBack}>← Back to Dashboard</button>
+ 
+        {/* Action buttons removed — now in nav */}
+      </div>
+ 
+      {/* ── Question Review ── */}
+      <div style={{ marginBottom: "16px" }}>
+        <h2 style={{ fontSize: isMobile ? "18px" : "22px", fontWeight: "800", color: t.text1, margin: "0 0 14px", letterSpacing: "-0.5px" }}>Question Review</h2>
+ 
+        {/* Filter bar */}
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {[
+            { key: "all",        label: `All (${filterCounts.all})` },
+            { key: "correct",    label: `✓ Correct (${filterCounts.correct})` },
+            { key: "wrong",      label: `✗ Wrong (${filterCounts.wrong})` },
+            { key: "unanswered", label: `— Skipped (${filterCounts.unanswered})` },
+            { key: "flagged", label: `🚩 Flagged (${filterCounts.flagged})` }
+            // ...(nFlagged > 0 ? [{ key: "flagged", label: `🚩 Flagged (${filterCounts.flagged})` }] : []),
+          ].map(f => (
+            <button key={f.key} onClick={() => { setFilter(f.key); setExpandedIdx(null); }} style={{
+              padding: "6px 14px", borderRadius: "20px", fontFamily: "inherit", fontSize: "12px", cursor: "pointer",
+              border: filter === f.key ? "1px solid #6366f1" : `1px solid ${t.borderMid}`,
+              background: filter === f.key ? "#6366f115" : "transparent",
+              color: filter === f.key ? "#6366f1" : t.text3,
+              fontWeight: filter === f.key ? "700" : "400",
+            }}>{f.label}</button>
+          ))}
         </div>
       </div>
-
-      <h2 style={styles.reviewTitle}>Question Review</h2>
-      <div style={styles.reviewList}>
-        {test.questions.map((q, i) => {
-          const userAns = answers[i];
-          const correct = userAns === q.answer;
-          const expanded = expandedIdx === i;
+ 
+      {/* Question cards */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {filteredQuestions.length === 0 && (
+          <div style={{ textAlign: "center", padding: "40px", color: t.text4, fontSize: "13px" }}>No questions in this category.</div>
+        )}
+        {filteredQuestions.map(({ q, i }) => {
+          const userAns    = answers[i];
+          const isCorrect  = userAns === q.answer;
+          const isSkipped  = !userAns;
+          const isFlaggedQ = flagged instanceof Set ? flagged.has(i) : false;
+          const expanded   = expandedIdx === i;
+ 
+          const statusColor = isCorrect ? "#4ade80" : isSkipped ? t.text4 : "#f87171";
+          const statusIcon  = isCorrect ? "✓" : isSkipped ? "—" : "✗";
+          const cardBorder  = isCorrect ? "#4ade8030" : isSkipped ? t.border : "#f8717130";
+ 
           return (
-            <div key={i} style={{ ...styles.reviewCard, borderColor: correct ? "#4ade8040" : "#f8717140" }}>
-              <div style={styles.reviewCardTop} onClick={() => setExpandedIdx(expanded ? null : i)}>
-                <div style={styles.reviewCardLeft}>
-                  <span style={{ ...styles.reviewStatus, color: correct ? "#4ade80" : "#f87171" }}>
-                    {correct ? "✓" : "✗"}
+            <div key={i} style={{ background: t.bgCard, border: `1px solid ${cardBorder}`, borderRadius: "10px", overflow: "hidden" }}>
+              {/* Question header row */}
+              <div onClick={() => setExpandedIdx(expanded ? null : i)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "13px 16px", cursor: "pointer" }}>
+                <span style={{ fontSize: "15px", fontWeight: "800", color: statusColor, width: "18px", flexShrink: 0, textAlign: "center" }}>{statusIcon}</span>
+                <span style={{ fontSize: "12px", color: t.text4, width: "30px", flexShrink: 0, fontFamily: "'IBM Plex Mono', monospace" }}>Q{i + 1}</span>
+                {isFlaggedQ && <span style={{ fontSize: "11px", flexShrink: 0 }}>🚩</span>}
+                {q.subject && (
+                  <span style={{ fontSize: "10px", color: "#6366f1", background: "#6366f115", border: "1px solid #6366f130", borderRadius: "4px", padding: "1px 6px", fontWeight: "600", flexShrink: 0, whiteSpace: "nowrap" }}>
+                    {q.subject}
                   </span>
-                  <span style={styles.reviewQNum}>Q{i + 1}</span>
-                  <span style={{ ...styles.reviewQText, ...(isMobile ? { fontSize: "13px" } : {}) }}>{q.question}</span>
-                </div>
-                <span style={styles.reviewExpand}>{expanded ? "▲" : "▼"}</span>
+                )}
+                {/* <span style={{ flex: 1, fontSize: "13px", color: t.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{q.question}</span> */}
+                <span style={{ flex: 1, fontSize: "13px", color: t.text2, whiteSpace: "normal", wordBreak: "break-word" }}>{q.question}</span>
+                <span style={{ color: t.text4, fontSize: "13px", flexShrink: 0, marginLeft: "8px" }}>{expanded ? "▲" : "▼"}</span>
               </div>
-
+ 
+              {/* Expanded detail */}
               {expanded && (
-                <div style={styles.reviewDetail}>
-                  <div style={styles.reviewOptions}>
+                <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${t.border}` }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "12px" }}>
                     {q.options.map((opt, oi) => {
-                      const isCorrect = opt === q.answer;
-                      const isUser = opt === userAns;
+                      const isOptCorrect = opt === q.answer;
+                      const isOptUser    = opt === userAns;
                       return (
                         <div key={oi} style={{
-                          ...styles.reviewOpt,
-                          ...(isMobile ? styles.reviewOptMobile : {}),
-                          background: isCorrect ? "#4ade8018" : isUser && !correct ? "#f8717118" : "transparent",
-                          borderColor: isCorrect ? "#4ade80" : isUser && !correct ? "#f87171" : "#334155"
+                          display: "flex", alignItems: "center", gap: "10px",
+                          padding: "10px 14px", borderRadius: "8px",
+                          background: isOptCorrect ? "#4ade8015" : isOptUser && !isCorrect ? "#f8717115" : t.bgDeep,
+                          border: `1px solid ${isOptCorrect ? "#4ade8050" : isOptUser && !isCorrect ? "#f8717150" : t.border}`,
                         }}>
-                          <span style={styles.reviewOptLabel}>{String.fromCharCode(65 + oi)}</span>
-                          <span style={{ flex: 1 }}>{opt}</span>
-                          {isCorrect && <span style={{ ...styles.correctTag, flexShrink: 0 }}>✓</span>}
-                          {isUser && !correct && <span style={{ ...styles.wrongTag, flexShrink: 0 }}>✗</span>}
+                          <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: isOptCorrect ? "#4ade8030" : isOptUser && !isCorrect ? "#f8717130" : t.bgHover, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "700", color: isOptCorrect ? "#4ade80" : isOptUser && !isCorrect ? "#f87171" : t.text4, flexShrink: 0 }}>
+                            {String.fromCharCode(65 + oi)}
+                          </span>
+                          <span style={{ flex: 1, fontSize: "13px", color: isOptCorrect ? "#4ade80" : isOptUser && !isCorrect ? "#f87171" : t.text2 }}>{opt}</span>
+                          {isOptCorrect && <span style={{ fontSize: "11px", color: "#4ade80", fontWeight: "700", flexShrink: 0 }}>✓ Correct</span>}
+                          {isOptUser && !isCorrect && <span style={{ fontSize: "11px", color: "#f87171", fontWeight: "700", flexShrink: 0 }}>✗ Your answer</span>}
                         </div>
                       );
                     })}
                   </div>
-                  {!correct && q.explanation && (
-                    <div style={styles.explanation}>
-                      <span style={styles.explanationLabel}>💡 Explanation</span>
-                      <p style={styles.explanationText}>{q.explanation}</p>
+ 
+                  {/* Unanswered notice */}
+                  {/* {isSkipped && (
+                    <div style={{ marginTop: "12px", padding: "10px 14px", background: `${t.bgDeep}`, border: `1px solid ${t.border}`, borderRadius: "8px", fontSize: "12px", color: t.text4 }}>
+                      — This question was not attempted
+                    </div>
+                  )} */}
+ 
+                  {/* Explanation — shown for ALL questions (correct, wrong, skipped) */}
+                  {q.explanation && (
+                    <div style={{ marginTop: "12px", padding: "12px 14px", background: "#6366f110", border: "1px solid #6366f130", borderRadius: "8px" }}>
+                      <div style={{ fontSize: "10px", fontWeight: "700", color: "#6366f1", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>💡 Explanation</div>
+                      <div style={{ fontSize: "13px", color: t.text2, lineHeight: 1.7 }}>{q.explanation}</div>
                     </div>
                   )}
                 </div>
@@ -1410,17 +1580,7 @@ function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onAtt
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function StatBox({ label, value, color, isMobile }) {
-  const { t } = useTheme();
-  const styles = getStyles(t);
-  return (
-    <div style={{ ...styles.statBox, ...(isMobile ? styles.statBoxMobile : {}) }}>
-      <span style={{ ...styles.statValue, color, ...(isMobile ? { fontSize: "16px" } : {}) }}>{value}</span>
-      <span style={{ ...styles.statLabel, ...(isMobile ? { fontSize: "10px" } : {}) }}>{label}</span>
+      </div>
     </div>
   );
 }
@@ -1773,6 +1933,11 @@ export default function MockTestApp() {
     setPage("dashboard");
   }
 
+  // function handleRetake() {
+  //   setActiveTest(null); 
+  //   setTimeout(() => handleStart(activeTest), 0);
+  // }
+
   function handleViewAttempts(quiz) {
     setActiveQuiz(quiz);
     setPage("quiz-attempts");
@@ -1833,6 +1998,7 @@ export default function MockTestApp() {
       <TestInterface
         test={activeTest}
         onBack={handleBack}
+        onRetake={() => { setActiveTest(null); setTimeout(() => handleStart(activeTest), 0); }}
         onAttemptSaved={() => loadAttempts()}
       />
     );
