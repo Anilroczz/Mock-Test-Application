@@ -1275,6 +1275,195 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved, onRetake}) {
   );
 }
 
+// ─── Topic Wise Tracker ───────────────────────────────────────────────────────
+function TopicTracker({ questions, answers }) {
+  const { t } = useTheme();
+  const isMobile = useIsMobile();
+  const [popup, setPopup] = useState(null); // { question, correctAnswer, qNum }
+  
+  // Build topic → questions map, preserving quiz order
+  const topicMap = {};
+  questions.forEach((q, i) => {
+    const topic = q.topic || null;
+    if (!topicMap[topic]) topicMap[topic] = [];
+    topicMap[topic].push({ q, i });
+  });
+ 
+  const topics = Object.entries(topicMap); // [[topicName, [{q,i},...]], ...]
+  // If no subjects on any question, don't render
+  const hasSubjects = questions.some(q => q.topic);
+  if (!hasSubjects) return null;
+ 
+  function getStatus(i) {
+    const userAns = answers[i];
+    if (!userAns)                   return "skipped";
+    if (userAns === questions[i].answer) return "correct";
+    return "wrong";
+  }
+ 
+  const statusStyle = {
+    correct: { bg: "#4ade80", color: "#052e16", border: "#22c55e" },
+    wrong:   { bg: "#f87171", color: "#450a0a", border: "#ef4444" },
+    skipped: { bg: t.bgHover, color: t.text3,   border: t.borderMid },
+  };
+ 
+  return (
+    <>
+      {/* Popup overlay */}
+      {popup && (
+        <div
+          onClick={() => setPopup(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 999,
+            background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "20px",
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: t.bgCard, border: `1px solid ${t.borderMid}`,
+              borderRadius: "14px", padding: "24px", maxWidth: "540px", width: "100%",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <span style={{ fontSize: "12px", fontWeight: "700", color: "#6366f1", textTransform: "uppercase", letterSpacing: "1px", fontFamily: "'IBM Plex Mono', monospace" }}>
+                Q{popup.qNum + 1} · {popup.q.topic || "Uncategorised"}
+              </span>
+              <button onClick={() => setPopup(null)} style={{ background: "none", border: "none", color: t.text4, cursor: "pointer", fontSize: "18px", lineHeight: 1, padding: "0 4px" }}>✕</button>
+            </div>
+ 
+            {/* Question text */}
+            <p style={{ fontSize: "14px", color: t.text1, lineHeight: 1.7, margin: "0 0 16px", fontWeight: "600" }}>
+              {popup.q.question}
+            </p>
+ 
+            {/* Options */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+              {popup.q.options.map((opt, oi) => {
+                const isCorrect  = opt === popup.q.answer;
+                const isSelected = opt === answers[popup.qNum];
+                const isWrong    = isSelected && !isCorrect;
+                return (
+                  <div key={oi} style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    padding: "9px 13px", borderRadius: "8px",
+                    background: isCorrect ? "#4ade8015" : isWrong ? "#f8717115" : t.bgDeep,
+                    border: `1px solid ${isCorrect ? "#4ade8050" : isWrong ? "#f8717150" : t.border}`,
+                  }}>
+                    <span style={{
+                      width: "20px", height: "20px", borderRadius: "50%", flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "10px", fontWeight: "700",
+                      background: isCorrect ? "#4ade8030" : isWrong ? "#f8717130" : t.bgHover,
+                      color: isCorrect ? "#4ade80" : isWrong ? "#f87171" : t.text4,
+                    }}>{String.fromCharCode(65 + oi)}</span>
+                    <span style={{ flex: 1, fontSize: "13px", color: isCorrect ? "#4ade80" : isWrong ? "#f87171" : t.text2 }}>{opt}</span>
+                    {isCorrect && <span style={{ fontSize: "11px", color: "#4ade80", fontWeight: "700" }}>✓ Correct</span>}
+                    {isWrong   && <span style={{ fontSize: "11px", color: "#f87171", fontWeight: "700" }}>✗ Your answer</span>}
+                  </div>
+                );
+              })}
+            </div>
+ 
+            {/* Explanation if any */}
+            {!isMobile && popup.q.explanation && (
+              <div style={{ padding: "12px 14px", background: "#6366f110", border: "1px solid #6366f130", borderRadius: "8px" }}>
+                <div style={{ fontSize: "10px", fontWeight: "700", color: "#6366f1", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "5px" }}>💡 Explanation</div>
+                <div style={{ fontSize: "13px", color: t.text2, lineHeight: 1.7 }}>{popup.q.explanation}</div>
+              </div>
+            )}
+ 
+            {/* <div style={{ marginTop: "16px", fontSize: "11px", color: t.text4, textAlign: "center" }}>Click anywhere outside to close</div> */}
+          </div>
+        </div>
+      )}
+ 
+      {/* ── Tracker table ── */}
+      <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "14px", overflow: "hidden", marginBottom: "24px" }}>
+ 
+        {/* Table header */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "120px 1fr" : "180px 1fr",
+          borderBottom: `2px solid ${t.border}`,
+        }}>
+          <div style={{ padding: "12px 16px", fontSize: "11px", fontWeight: "700", color: t.text3, textTransform: "uppercase", letterSpacing: "1px", borderRight: `1px solid ${t.border}` }}>Topic</div>
+          <div style={{ padding: "12px 16px", fontSize: "11px", fontWeight: "700", color: t.text3, textTransform: "uppercase", letterSpacing: "1px" }}>Questions</div>
+        </div>
+ 
+        {/* Topic rows */}
+        {topics.map(([topicName, qs], ti) => {
+          const correct  = qs.filter(({ i }) => getStatus(i) === "correct").length;
+          const total    = qs.length;
+          const topicPct = Math.round((correct / total) * 100);
+          const barColor = topicPct >= 60 ? "#4ade80" : topicPct >= 35 ? "#facc15" : "#f87171";
+ 
+          return (
+            <div
+              key={topicName}
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "120px 1fr" : "180px 1fr",
+                borderBottom: ti < topics.length - 1 ? `1px solid ${t.border}` : "none",
+                minHeight: "72px",
+              }}
+            >
+              {/* Topic name + progress bar */}
+              <div style={{
+                padding: "14px 16px", borderRight: `1px solid ${t.border}`,
+                display: "flex", flexDirection: "column", justifyContent: "center", gap: "8px",
+              }}>
+                <span style={{ fontSize: isMobile ? "12px" : "13px", fontWeight: "700", color: t.text1, lineHeight: 1.3 }}>{topicName}</span>
+                <div>
+                  {/* Progress bar */}
+                  <div style={{ height: "4px", background: t.bgDeep, borderRadius: "4px", overflow: "hidden", marginBottom: "3px" }}>
+                    <div style={{ height: "100%", width: `${topicPct}%`, background: barColor, borderRadius: "4px", transition: "width 0.8s ease" }} />
+                  </div>
+                  <span style={{ fontSize: "10px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" }}>
+                    {correct}/{total} · {topicPct}%
+                  </span>
+                </div>
+              </div>
+ 
+              {/* Question bubbles */}
+              <div style={{ padding: "14px 16px", display: "flex", flexWrap: "wrap", gap: "6px", alignContent: "center" }}>
+                {qs.map(({ q, i }) => {
+                  const status = getStatus(i);
+                  const st     = statusStyle[status];
+                  return (
+                    <button
+                      key={i}
+                      title={`Q${i + 1}: ${q.question.slice(0, 60)}${q.question.length > 60 ? "…" : ""}`}
+                      onClick={() => setPopup({ q, qNum: i })}
+                      style={{
+                        width: "32px", height: "32px", borderRadius: "50%",
+                        background: st.bg, border: `2px solid ${st.border}`,
+                        color: st.color, fontSize: "11px", fontWeight: "800",
+                        cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0, transition: "transform 0.1s, box-shadow 0.1s",
+                        lineHeight: 1,
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.18)"; e.currentTarget.style.boxShadow = `0 4px 12px ${st.bg}80`; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 // ─── Results ──────────────────────────────────────────────────────────────────
 function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onRetake, onAttemptSaved }) {
   const { t } = useTheme();
@@ -1473,8 +1662,12 @@ function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onRet
  
           </div>
         </div>
- 
-        {/* Action buttons removed — now in nav */}
+      </div>
+
+      {/* ── Topic Wise Tracker ── */}
+      <div style={{ marginBottom: "8px" }}>
+        <h2 style={{ fontSize: isMobile ? "18px" : "22px", fontWeight: "800", color: t.text1, margin: "0 0 14px", letterSpacing: "-0.5px" }}>Topic Wise Analysis</h2>
+        <TopicTracker questions={test.questions} answers={answers} />
       </div>
  
       {/* ── Question Review ── */}
@@ -1525,11 +1718,11 @@ function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onRet
                 <span style={{ fontSize: "15px", fontWeight: "800", color: statusColor, width: "18px", flexShrink: 0, textAlign: "center" }}>{statusIcon}</span>
                 <span style={{ fontSize: "12px", color: t.text4, width: "30px", flexShrink: 0, fontFamily: "'IBM Plex Mono', monospace" }}>Q{i + 1}</span>
                 {isFlaggedQ && <span style={{ fontSize: "11px", flexShrink: 0 }}>🚩</span>}
-                {q.subject && (
+                {/* {expanded && q.topic && (
                   <span style={{ fontSize: "10px", color: "#6366f1", background: "#6366f115", border: "1px solid #6366f130", borderRadius: "4px", padding: "1px 6px", fontWeight: "600", flexShrink: 0, whiteSpace: "nowrap" }}>
-                    {q.subject}
+                    {q.topic}
                   </span>
-                )}
+                )} */}
                 {/* <span style={{ flex: 1, fontSize: "13px", color: t.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{q.question}</span> */}
                 <span style={{ flex: 1, fontSize: "13px", color: t.text2, whiteSpace: "normal", wordBreak: "break-word" }}>{q.question}</span>
                 <span style={{ color: t.text4, fontSize: "13px", flexShrink: 0, marginLeft: "8px" }}>{expanded ? "▲" : "▼"}</span>

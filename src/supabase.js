@@ -297,7 +297,7 @@ export async function fetchQuizzes() {
       created_on,
       questions_quizzes(count)
     `)
-    .order("created_on", { ascending: false });
+    .order("title", { ascending: true });
 
   if (error) throw error;
 
@@ -340,7 +340,7 @@ export async function fetchQuizWithQuestions(quizId) {
     options: row.questions.options,
     answer: row.questions.answer,
     explanation: row.questions.explanation,
-    subject: row.questions.subject || null,
+    topic: row.questions.topic || null,
   }));
 
   return {
