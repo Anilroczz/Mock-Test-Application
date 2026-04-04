@@ -20,6 +20,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 //   explanation text,
 //   topic     text,
 //   fingerprint text not null,        -- question + answer (identity key)
+//   usage_count integer default 0,
+//   last_used_at timestamptz default null
 // );
 //
 // -- REQUIRED: unique index on fingerprint for deduplication
@@ -51,6 +53,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // -- Indexes for fast lookups
 // create index on questions_quizzes(quiz_id);
 // create index on questions_quizzes(question_id);
+// create index on questions(subject, last_used_at nulls first, usage_count);
 //
 // -- Optional: add this index to speed up duplicate-question lookups at scale
 // -- create index on questions(question);
@@ -607,4 +610,246 @@ export async function fetchAttemptDetail(attemptId) {
                     :                             "wrong",
     })),
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QUIZ BUILDER — Migration SQL (run once in Supabase SQL editor)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// -- Add usage tracking columns to questions table
+// alter table questions
+//   add column if not exists last_used_at  timestamptz default null,
+//   add column if not exists usage_count   integer     default 0;
+//
+// -- Index for efficient selection ordering
+// create index if not exists on questions(subject, last_used_at nulls first, usage_count);
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+ 
+// Uses the increment_question_usage RPC which runs as SECURITY DEFINER,
+// bypassing RLS on the questions table.
+//
+// If the RPC doesn't exist yet, run this SQL in Supabase SQL editor:
+//
+//   create or replace function increment_question_usage(question_ids uuid[])
+//   returns void
+//   language sql
+//   security definer
+//   as $$
+//     update questions
+//     set
+//       usage_count  = usage_count + 1,
+//       last_used_at = now()
+//     where id = any(question_ids);
+//   $$;
+//
+//   -- Grant execute to authenticated users
+//   grant execute on function increment_question_usage(uuid[]) to authenticated;
+//
+
+/**
+ * Core quiz builder function.
+ *
+ * For each topic, selects `count` questions ordered by:
+ *   1. last_used_at IS NULL first  — never-used questions always picked first
+ *   2. last_used_at ASC            — then oldest used questions
+ *   3. usage_count ASC             — tiebreak by least frequently used
+ *
+ * This creates a natural rotating queue through the entire question bank.
+ * No cutoff date needed — the ordering itself guarantees freshest questions
+ * are always selected first, and the bank cycles fully before any repeats.
+ *
+ * @param {object} meta   - { title, subject, difficulty, duration, positiveMarking, negativeMarking }
+ * @param {Array}  topics - [{ subject: string, count: number }]
+ */
+export async function buildQuiz(meta, topics) {
+  const selectedIds = [];
+ 
+  // ── Step 1: Select questions per topic ────────────────────────────────────
+  for (const { subject, count } of topics) {
+    const { data, error } = await supabase
+      .from("questions")
+      .select("id")
+      .eq("topic", subject)
+      .order("last_used_at", { ascending: true, nullsFirst: true })
+      .order("usage_count",  { ascending: true })
+      .limit(count);
+ 
+    if (error) throw new Error(`Failed to fetch questions for "${subject}": ${error.message}`);
+    if (!data.length) throw new Error(`No questions found for subject "${subject}". Check the subject name matches exactly.`);
+ 
+    selectedIds.push(...data.map(q => q.id));
+  }
+ 
+  // ── Step 2: Insert quiz row ───────────────────────────────────────────────
+  const { data: quiz, error: quizErr } = await supabase
+    .from("quizzes")
+    .insert({
+      title:            meta.title,
+      subject:          meta.subject || "Physioloy",
+      topic:            meta.topic || "Mixed",   
+      duration:         meta.duration,
+      total_questions:  meta.totalQuestions || 90,
+      positive_marking: meta.positiveMarking ?? 1,
+      negative_marking: meta.negativeMarking ?? 0.25,
+      created_on:       new Date().toISOString().split("T")[0],
+    })
+    .select()
+    .single();
+ 
+  if (quizErr) throw quizErr;
+ 
+  try {
+    // ── Step 3: Bulk insert join rows ─────────────────────────────────────
+    const joinRows = selectedIds.map((question_id, idx) => ({
+      quiz_id:     quiz.id,
+      question_id,
+      position:    idx + 1,
+    }));
+ 
+    const { error: joinErr } = await supabase
+      .from("questions_quizzes")
+      .insert(joinRows);
+ 
+    if (joinErr) throw joinErr;
+ 
+    // ── Step 4: Update usage tracking ────────────────────────────────────
+    // Try the RPC first (atomic increment). Falls back to a timestamp-only
+    // update if the RPC hasn't been created yet.
+    const { error: rpcErr } = await supabase.rpc("increment_question_usage", {
+      question_ids: selectedIds,
+    });
+ 
+    if (rpcErr) {
+      // RPC failed — throw so the quiz builder surfaces this clearly
+      // rather than silently skipping usage tracking.
+      // Most likely cause: RPC not created yet. Run the SQL above.
+      throw new Error(
+        `Usage tracking failed: ${rpcErr.message}. ` +
+        `Create the increment_question_usage RPC in Supabase SQL editor ` +
+        `(SQL is in the supabase.js comments above this line).`
+      );
+    }
+ 
+    return { quiz, totalQuestions: selectedIds.length };
+ 
+ 
+  } catch (err) {
+    // Rollback — delete the quiz row so retries start clean
+    await supabase.from("quizzes").delete().eq("id", quiz.id);
+    throw err;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUBJECT STATS — Materialized View (run once in Supabase SQL editor)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// -- 1. Create the materialized view
+// create materialized view subject_stats as
+// select
+//   subject,
+//   count(*)::integer                                              as total,
+//   count(*) filter (where last_used_at is null)::integer          as never_used,
+//   count(*) filter (where usage_count = 0)::integer               as unused_count
+// from questions
+// where subject is not null
+//   and trim(subject) != ''
+// group by subject
+// order by subject;
+//
+// -- 2. Unique index required for concurrent refresh (no table lock)
+// create unique index on subject_stats (subject);
+//
+// -- 3. Auto-refresh via pg_cron (runs every day at 2 AM UTC)
+// --    Enable pg_cron extension first: Dashboard → Database → Extensions → pg_cron
+// select cron.schedule(
+//   'refresh-subject-stats',
+//   '0 2 * * *',
+//   $$refresh materialized view concurrently subject_stats$$
+// );
+//
+// -- 4. Manual refresh (run anytime after bulk question inserts)
+// refresh materialized view concurrently subject_stats;
+//
+// -- 5. Grant read access to the anon role (needed for Supabase JS client)
+// grant select on subject_stats to anon, authenticated;
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+ 
+/**
+ * Fetch all subjects from the materialized view subject_stats.
+ * Returns [{ subject, total, never_used, unused_count }] sorted alphabetically.
+ *
+ * The materialized view is refreshed daily via pg_cron.
+ * After a bulk question insert, run manually:
+ *   refresh materialized view concurrently subject_stats;
+ *
+ * Falls back gracefully — if the view doesn't exist yet, throws a clear error.
+ */
+export async function fetchSubjects() {
+  const { data, error } = await supabase
+    .from("subject_stats")
+    .select("topic, total, never_used, unused_count")
+    .order("topic", { ascending: true });
+ 
+  if (error) {
+    if (error.message?.includes("subject_stats")) {
+      throw new Error(
+        'The subject_stats materialized view does not exist yet. ' +
+        'Run the SQL in the supabase.js comments to create it.' +
+        error.message
+      );
+    }
+    throw error;
+  }
+ 
+  return data ?? [];
+}
+
+// ─── Question Bank Importer ───────────────────────────────────────────────────
+ 
+/**
+ * Bulk-insert an array of questions directly into the questions table.
+ * Uses the same fingerprint deduplication as saveQuiz — questions that
+ * already exist (same question text + answer) are silently skipped.
+ *
+ * @param {Array}  questions - [{ question, options, answer, explanation, subject }]
+ * @returns {{ inserted: number, skipped: number, errors: string[] }}
+ */
+export async function importQuestions(questions) {
+  let inserted = 0;
+  let skipped  = 0;
+  const errors = [];
+ 
+  for (const q of questions) {
+    const fingerprint = questionFingerprint({question: q.question, answer: q.answer});
+ 
+    // Check if already exists
+    const { data: existing, error: findErr } = await supabase
+      .from("questions")
+      .select("id")
+      .eq("fingerprint", fingerprint)
+      .maybeSingle();
+ 
+    if (findErr) { errors.push(`Q: "${q.question.slice(0, 40)}…" — ${findErr.message}`); continue; }
+    if (existing) { ++skipped; continue; }
+ 
+    // Insert new question
+    const { error: insertErr } = await supabase
+      .from("questions")
+      .insert({
+        question:    q.question.trim(),
+        options:     q.options,
+        answer:      q.answer.trim(),
+        explanation: q.explanation?.trim() || null,
+        topic:     q.topic?.trim()     || null,
+        fingerprint,
+      });
+ 
+    if (insertErr) { errors.push(`Q: "${q.question.slice(0, 40)}…" — ${insertErr.message}`); continue; }
+    ++inserted;
+  }
+ 
+  return { inserted, skipped, errors };
 }

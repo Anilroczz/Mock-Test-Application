@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } from "react";
-import "./MockTestApp.css";
 import { saveQuiz, fetchQuizzes, fetchQuizWithQuestions, deleteQuiz } from "./supabase";
 import { saveAttempt, fetchMyAttempts, fetchAttemptsForQuiz, fetchAttemptDetail } from "./supabase";
+import { fetchSubjects, buildQuiz } from "./supabase";
+import { importQuestions } from "./supabase";
 import { signIn, signInWithGoogle, signUp, signOut, onAuthChange, fetchUserRole } from "./auth";
+import "./MockTestApp.css";
 
 // Theme Context
 const ThemeContext = createContext();
@@ -83,6 +85,23 @@ const JSON_TEMPLATE = `{
   ]
 }`;
 
+const QUESTIONS_TEMPLATE = `[
+  {
+    "question": "Your question text here?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "answer": "Option A",
+    "explanation": "Explanation of why Option A is correct.",
+    "topic": "Subject name here"
+  },
+  {
+    "question": "Your question text here?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "answer": "Option A",
+    "explanation": "Explanation of why Option A is correct.",
+    "topic": "Subject name here"
+  }
+]`;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -130,12 +149,28 @@ function Nav({ page, setPage, testsCount }) {
  
         {/* New test — admin only */}
         {role === "admin" && (
-          <button
-            onClick={() => setPage("create")}
-            style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
-          >
-            {isMobile ? "＋" : "+ New Test"}
-          </button>
+          <>
+            <button
+              onClick={() => setPage("create")}
+              style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
+            >
+              {isMobile ? "＋" : "+ New Test"}
+            </button>
+
+            <button
+                onClick={() => setPage("builder")}
+                style={{ ...styles.navBtn, ...(page === "builder" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
+              >
+              {isMobile ? "🔧" : "⚡ Builder"}
+            </button>
+
+            <button
+              onClick={() => setPage("import")}
+              style={{ ...styles.navBtn, ...(page === "import" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
+            >
+              {isMobile ? "📥" : "📥 Import"}
+            </button>
+          </>
         )}
  
         {/* Theme toggle — icon only on mobile */}
@@ -262,6 +297,7 @@ function Dashboard({ tests, onStart, onDelete, onViewAttempts, loading, error })
   );
 }
  
+// ─── TestCard ───────────────────────────────────────────────────────────────
 function TestCard({ test, onStart, onDelete, onViewAttempts }) {
   const { t } = useTheme();
   const { user, role } = useAuth();
@@ -678,6 +714,656 @@ function AttemptDetailPage({ attempt, onBack }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ─── Quiz Builder ─────────────────────────────────────────────────────────────
+function QuizBuilder({ onCreate }) {
+  const { t } = useTheme();
+  const isMobile = useIsMobile();
+ 
+  // ── Subjects from materialized view (subject_stats) ────────────────────────
+  // Populated once on mount. New subjects appear automatically when
+  // questions with a new subject value are added and the view is refreshed.
+  const [subjects,       setSubjects]       = useState([]);  // [{ subject, total }]
+  const [subjectsLoading, setSubjectsLoading] = useState(true);
+  const [subjectsError,   setSubjectsError]   = useState("");
+ 
+  // ── Selections: { [subject]: { enabled, count } } ──────────────────────────
+  const [selections, setSelections] = useState({});
+ 
+  // ── Load subjects from DB on mount ──────────────────────────────────────────
+  useEffect(() => {
+    fetchSubjects()
+      .then(rows => {
+        setSubjects(rows);
+        // Initialise every subject with enabled=false, count=10
+        const init = {};
+        rows.forEach(({ topic }) => { init[topic] = { enabled: false, count: 10 }; });
+        setSelections(init);
+      })
+      .catch(e => setSubjectsError(e.message))
+      .finally(() => setSubjectsLoading(false));
+  }, []);
+ 
+  // ── Quiz metadata ────────────────────────────────────────────────────────────
+  const [title,       setTitle]       = useState("");
+  const [subject,     setSubject]     = useState("Physiology");
+  const [topic,       setTopic]       = useState("Mixed");
+  const [durationHr,  setDurationHr]  = useState(1);
+  const [durationMin, setDurationMin] = useState(0);
+  const [posMarking,  setPosMarking]  = useState(1);
+  const [negMarking,  setNegMarking]  = useState(0.25);
+ 
+  // ── UI state ─────────────────────────────────────────────────────────────────
+  const [building, setBuilding] = useState(false);
+  const [buildLog, setBuildLog] = useState([]);
+  const [error,    setError]    = useState("");
+  const [success,  setSuccess]  = useState(false);
+ 
+  // ── Derived ──────────────────────────────────────────────────────────────────
+  const enabledTopics   = Object.entries(selections).filter(([, v]) => v.enabled);
+  const totalQuestions  = enabledTopics.reduce((s, [, v]) => s + v.count, 0);
+  const maxScore        = +(totalQuestions * posMarking).toFixed(2);
+  const durationSeconds = durationHr * 3600 + durationMin * 60;
+  const canBuild        = title.trim() && enabledTopics.length > 0 && durationSeconds >= 60 && !building;
+ 
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const toggle    = (s, val) => setSelections(p => ({ ...p, [s]: { ...p[s], enabled: val } }));
+  const setCount  = (s, n)   => setSelections(p => ({ ...p, [s]: { ...p[s], count: Math.max(1, n) } }));
+  const toggleAll = (val) => setSelections(p => {
+    const next = { ...p };
+    subjects.forEach(({ topic: s }) => {
+      if (next[s]) next[s] = { ...next[s], enabled: val };
+    });
+    return next;
+  });
+ 
+  // ── Build ────────────────────────────────────────────────────────────────────
+  async function handleBuild() {
+    setError(""); setBuildLog([]); setSuccess(false);
+    if (!title.trim())              { setError("Quiz title is required."); return; }
+    if (enabledTopics.length === 0) { setError("Enable at least one topic."); return; }
+    if (durationSeconds < 60)       { setError("Duration must be at least 1 minute."); return; }
+ 
+    const topicList = enabledTopics.map(([s, v]) => ({ subject: s, count: v.count }));
+    setBuilding(true);
+    setBuildLog([`Selecting ${totalQuestions} questions across ${topicList.length} topic(s)…`]);
+ 
+    try {
+      const { quiz, totalQuestions: tq } = await buildQuiz(
+        { title: title.trim(), subject, topic, duration: durationSeconds, positiveMarking: posMarking, negativeMarking: negMarking, totalQuestions },
+        topicList
+      );
+      setBuildLog(prev => [...prev, `✓ Quiz created — ${tq} questions linked`]);
+      setBuildLog(prev => [...prev, "✓ Usage tracking updated on selected questions"]);
+      setSuccess(true);
+      setTimeout(() => onCreate({
+        ...quiz,
+        positiveMarking: quiz.positive_marking ?? posMarking,
+        negativeMarking: quiz.negative_marking ?? negMarking,
+        createdOn:       quiz.created_on ?? new Date().toISOString().split("T")[0],
+        totalQuestions:  tq,
+      }), 1200);
+    } catch (e) {
+      setError("Build failed: " + e.message);
+      setBuildLog(prev => [...prev, "✗ " + e.message]);
+    } finally {
+      setBuilding(false);
+    }
+  }
+ 
+  // ── Shared styles ────────────────────────────────────────────────────────────
+  const inp = {
+    background: t.bgDeep, border: `1px solid ${t.borderMid}`, borderRadius: "8px",
+    color: t.text1, fontFamily: "inherit", fontSize: "13px", padding: "9px 12px",
+    outline: "none", width: "100%", boxSizing: "border-box",
+  };
+  const lbl = {
+    fontSize: "11px", fontWeight: "700", color: t.text3,
+    textTransform: "uppercase", letterSpacing: "0.8px",
+    marginBottom: "6px", display: "block",
+  };
+  const card = {
+    background: t.bgCard, border: `1px solid ${t.border}`,
+    borderRadius: "12px", padding: "20px",
+  };
+  const cardTitle = {
+    fontSize: "13px", fontWeight: "700", color: t.text1,
+    paddingBottom: "12px", marginBottom: "16px",
+    borderBottom: `1px solid ${t.border}`,
+  };
+ 
+  return (
+    <div style={{ maxWidth: "860px" }}>
+ 
+      {/* Page header */}
+      <div style={{ marginBottom: "24px" }}>
+        <h1 style={{ fontSize: isMobile ? "22px" : "26px", fontWeight: "800", color: t.text1, margin: 0, letterSpacing: "-0.5px" }}>⚡ Quiz Builder</h1>
+        <p style={{ color: t.text4, margin: "6px 0 0", fontSize: "13px" }}>
+          Build a full-length mock from your existing question bank. Questions are rotated by last-used date to avoid repetition.
+        </p>
+      </div>
+ 
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 280px", gap: "20px", alignItems: "start" }}>
+ 
+        {/* ── Left: metadata + topics ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+ 
+          {/* Quiz metadata */}
+          <div style={card}>
+            <div style={cardTitle}>Quiz Details</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+ 
+              {/* Title */}
+              <div>
+                <label style={lbl}>Quiz Title *</label>
+                <input value={title} onChange={e => setTitle(e.target.value)}
+                  placeholder="e.g. Physiology Full Length Mock Test 1" style={inp} />
+              </div>
+ 
+              {/* Subject + Topic label*/}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={lbl}>Subject</label>
+                  <input value={subject} onChange={e => setSubject(e.target.value)}
+                    placeholder="e.g. Physiology" style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Topic</label>
+                  <input value={topic} onChange={e => setTopic(e.target.value)}
+                    placeholder="e.g. Mixed" style={inp} />
+                  {/* <select value={difficulty} onChange={e => setTopic(e.target.value)}
+                    style={{ ...inp, cursor: "pointer" }}>
+                    {["Easy", "Medium", "Hard"].map(d => <option key={d}>{d}</option>)}
+                  </select> */}
+                </div>
+              </div>
+ 
+              {/* Duration */}
+              <div>
+                <label style={lbl}>Duration</label>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <input type="number" min="0" max="12" value={durationHr}
+                    onChange={e => setDurationHr(+e.target.value)}
+                    style={{ ...inp, width: "64px", textAlign: "center" }} />
+                  <span style={{ color: t.text4, fontSize: "13px", flexShrink: 0 }}>hr</span>
+                  <input type="number" min="0" max="59" value={durationMin}
+                    onChange={e => setDurationMin(+e.target.value)}
+                    style={{ ...inp, width: "64px", textAlign: "center" }} />
+                  <span style={{ color: t.text4, fontSize: "13px", flexShrink: 0 }}>min</span>
+                </div>
+              </div>
+ 
+              {/* Marking + avoid days */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={lbl}>+ve Mark</label>
+                  <input type="number" min="0" step="0.25" value={posMarking}
+                    onChange={e => setPosMarking(+e.target.value)} style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>−ve Mark</label>
+                  <input type="number" min="0" step="0.25" value={negMarking}
+                    onChange={e => setNegMarking(+e.target.value)} style={inp} />
+                </div>
+                {/* <div>
+                  <label style={lbl}>Total Questions</label>
+                  <input type="number" min="0" value={totalQuestionsCount}
+                    onChange={e => setTotalQuestionsCount(+e.target.value)} style={inp} />
+                </div> */}
+              </div>
+            </div>
+          </div>
+ 
+          {/* Topic selector */}
+          <div style={card}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", ...cardTitle }}>
+              <span>Topics &amp; Question Counts</span>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button onClick={() => toggleAll(true)}
+                  style={{ fontSize: "11px", padding: "3px 10px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: "transparent", color: t.text3, cursor: "pointer", fontFamily: "inherit" }}>
+                  All
+                </button>
+                <button onClick={() => toggleAll(false)}
+                  style={{ fontSize: "11px", padding: "3px 10px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: "transparent", color: t.text3, cursor: "pointer", fontFamily: "inherit" }}>
+                  None
+                </button>
+              </div>
+            </div>
+ 
+          {/* Loading state */}
+            {subjectsLoading && (
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "20px 0", color: t.text4, fontSize: "13px" }}>
+                <span style={{ width: "16px", height: "16px", borderRadius: "50%", border: "2px solid #6366f1", borderTop: "2px solid transparent", animation: "spin 0.8s linear infinite", display: "inline-block", flexShrink: 0 }} />
+                Loading subjects from question bank…
+              </div>
+            )}
+ 
+            {/* Error state */}
+            {subjectsError && !subjectsLoading && (
+              <div style={{ padding: "14px", background: "#f8717115", border: "1px solid #f8717130", borderRadius: "8px", fontSize: "12px", color: "#f87171", lineHeight: 1.6 }}>
+                ✗ {subjectsError}
+                <div style={{ marginTop: "6px", color: t.text4 }}>
+                  Run the SQL in supabase.js comments to create the subject_stats view, then refresh.
+                </div>
+              </div>
+            )}
+ 
+            {/* Empty state */}
+            {!subjectsLoading && !subjectsError && subjects.length === 0 && (
+              <p style={{ color: t.text4, fontSize: "13px", padding: "16px 0" }}>
+                No subjects found. Make sure questions have a subject field and the view is refreshed.
+              </p>
+            )}
+ 
+            {/* Topic rows */}
+            {!subjectsLoading && subjects.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              {subjects.map(({ topic, total }) => {
+                const sel = selections[topic] || { enabled: false, count: 10 };
+                return (
+                  <div
+                    key={topic}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "12px",
+                      padding: "10px 12px", borderRadius: "8px",
+                      background: sel.enabled ? "#6366f108" : "transparent",
+                      border: `1px solid ${sel.enabled ? "#6366f130" : "transparent"}`,
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {/* Toggle */}
+                    <div
+                      onClick={() => toggle(topic, !sel.enabled)}
+                      style={{
+                        width: "36px", height: "20px", borderRadius: "10px", flexShrink: 0,
+                        background: sel.enabled ? "#6366f1" : t.bgHover,
+                        border: `1px solid ${sel.enabled ? "#6366f1" : t.borderMid}`,
+                        cursor: "pointer", position: "relative", transition: "background 0.2s",
+                      }}
+                    >
+                      <div style={{
+                        position: "absolute", top: "2px",
+                        left: sel.enabled ? "17px" : "2px",
+                        width: "14px", height: "14px", borderRadius: "50%",
+                        background: "white", transition: "left 0.18s",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+                      }} />
+                    </div>
+ 
+                    {/* Topic name */}
+                    <span
+                      onClick={() => toggle(topic, !sel.enabled)}
+                      style={{
+                        flex: 1, fontSize: "13px", cursor: "pointer",
+                        fontWeight: sel.enabled ? "700" : "400",
+                        color: sel.enabled ? t.text1 : t.text3,
+                        transition: "color 0.15s",
+                      }}
+                    >
+                      {topic}
+                    </span>
+ 
+                    {/* Count stepper — only active when enabled */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", opacity: sel.enabled ? 1 : 0.3 }}>
+                      <button
+                        onClick={() => sel.enabled && setCount(topic, sel.count - 5)}
+                        style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >−5</button>
+                      <button
+                        onClick={() => sel.enabled && setCount(topic, sel.count - 1)}
+                        style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >−</button>
+                      <span style={{ width: "32px", textAlign: "center", fontSize: "14px", fontWeight: "800", color: t.text1, fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {sel.count}
+                      </span>
+                      <button
+                        onClick={() => sel.enabled && setCount(topic, sel.count + 1)}
+                        style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >+</button>
+                      <button
+                        onClick={() => sel.enabled && setCount(topic, sel.count + 5)}
+                        style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >+5</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            )}
+
+          </div>
+        </div>
+ 
+        {/* ── Right: live summary + generate ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", position: isMobile ? "static" : "sticky", top: "72px" }}>
+          <div style={card}>
+            <div style={cardTitle}>Summary</div>
+ 
+            {/* Key stats */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+              {[
+                { label: "Topics",         value: `${enabledTopics.length}`,         color: "#6366f1" },
+                { label: "Total Questions",value: `${totalQuestions}`,               color: t.text1   },
+                { label: "Max Score",      value: `+${maxScore}`,                    color: "#4ade80" },
+                { label: "Duration",       value: `${durationHr}h ${durationMin}m`,  color: t.text2   },
+                { label: "+ve / −ve",      value: `+${posMarking} / −${negMarking}`, color: t.text3   },
+                // { label: "Total",     value: `${avoidDays} days`,               color: t.text4   },
+              ].map(s => (
+                <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "12px", color: t.text4 }}>{s.label}</span>
+                  <span style={{ fontSize: "13px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace" }}>{s.value}</span>
+                </div>
+              ))}
+            </div>
+ 
+            {/* Topic breakdown */}
+            {enabledTopics.length > 0 && (
+              <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: "12px", marginBottom: "20px", display: "flex", flexDirection: "column", gap: "5px" }}>
+                <span style={{ fontSize: "10px", fontWeight: "700", color: t.text4, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>Breakdown</span>
+                {enabledTopics.map(([s, v]) => (
+                  <div key={s} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "12px", color: t.text2 }}>{s}</span>
+                    <span style={{ fontSize: "13px", fontWeight: "700", color: "#6366f1", fontFamily: "'IBM Plex Mono', monospace" }}>{v.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+ 
+            {/* Generate button */}
+            <button
+              onClick={handleBuild}
+              disabled={!canBuild}
+              style={{
+                width: "100%", padding: "13px", borderRadius: "10px", border: "none",
+                background: canBuild ? "linear-gradient(135deg, #6366f1, #8b5cf6)" : t.bgHover,
+                color: canBuild ? "white" : t.text4,
+                fontFamily: "inherit", fontSize: "14px", fontWeight: "800",
+                cursor: canBuild ? "pointer" : "not-allowed",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                transition: "all 0.2s",
+              }}
+            >
+              {building
+                ? <><span style={{ width: "14px", height: "14px", borderRadius: "50%", border: "2px solid white", borderTop: "2px solid transparent", animation: "spin 0.8s linear infinite", display: "inline-block" }} />Building…</>
+                : "⚡ Generate Quiz"
+              }
+            </button>
+ 
+            {error && (
+              <div style={{ marginTop: "12px", padding: "10px 12px", background: "#f8717115", border: "1px solid #f8717130", borderRadius: "8px", fontSize: "12px", color: "#f87171", lineHeight: 1.5 }}>
+                ✗ {error}
+              </div>
+            )}
+            {success && (
+              <div style={{ marginTop: "12px", padding: "10px 12px", background: "#4ade8015", border: "1px solid #4ade8030", borderRadius: "8px", fontSize: "12px", color: "#4ade80", lineHeight: 1.5 }}>
+                ✓ Quiz generated! Redirecting…
+              </div>
+            )}
+          </div>
+ 
+          {/* Build log */}
+          {buildLog.length > 0 && (
+            <div style={{ background: t.bgDeep, border: `1px solid ${t.border}`, borderRadius: "12px", padding: "16px" }}>
+              <div style={{ fontSize: "11px", fontWeight: "700", color: t.text4, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "10px" }}>Build Log</div>
+              {buildLog.map((line, i) => (
+                <div key={i} style={{ fontSize: "11px", fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1.6, color: line.startsWith("✓") ? "#4ade80" : line.startsWith("✗") ? "#f87171" : t.text3 }}>
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+ 
+      </div>
+    </div>
+  );
+}
+
+// ─── Import Questions ─────────────────────────────────────────────────────────
+function ImportQuestions() {
+  const { t } = useTheme();
+  const styles = getStyles(t);
+  const isMobile = useIsMobile();
+ 
+  const [json,         setJson]         = useState(QUESTIONS_TEMPLATE);
+  const [saving,       setSaving]       = useState(false);
+  const [error,        setError]        = useState("");
+  const [result,       setResult]       = useState(null);  // { inserted, skipped, errors }
+  const [dbLog,        setDbLog]        = useState([]);
+  const [showSchema,   setShowSchema]   = useState(false);
+  const [previewCount, setPreviewCount] = useState(0);
+ 
+  // Live preview — count valid questions as user types
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(json);
+      if (Array.isArray(parsed)) setPreviewCount(parsed.length);
+      else setPreviewCount(0);
+    } catch {
+      setPreviewCount(0);
+    }
+  }, [json]);
+ 
+  async function handleImport() {
+    setError(""); setResult(null); setDbLog([]);
+ 
+    // ── Validate JSON ──────────────────────────────────────────────────────
+    let questions;
+    try {
+      questions = JSON.parse(json);
+      if (!Array.isArray(questions))
+        throw new Error("JSON must be an array of question objects at the root level.");
+      if (questions.length === 0)
+        throw new Error("Array is empty — add at least one question.");
+ 
+      questions.forEach((q, i) => {
+        const n = i + 1;
+        if (!q.question?.trim())                              throw new Error(`Question ${n}: missing "question" field.`);
+        if (!Array.isArray(q.options) || q.options.length < 2) throw new Error(`Question ${n}: "options" must be an array with at least 2 items.`);
+        if (!q.answer?.trim())                                throw new Error(`Question ${n}: missing "answer" field.`);
+        if (!q.options.includes(q.answer))                    throw new Error(`Question ${n}: "answer" must exactly match one of the options.`);
+      });
+ 
+      // Check for duplicates within the submitted JSON itself
+      const seen = new Set();
+      questions.forEach((q, i) => {
+        const fp = `${q.question.trim()}__${q.answer.trim()}`;
+        if (seen.has(fp)) throw new Error(`Question ${i + 1} is a duplicate of an earlier question in this batch (same question + answer).`);
+        seen.add(fp);
+      });
+ 
+    } catch (e) {
+      setError(e.message);
+      return;
+    }
+ 
+    // ── Import to DB ───────────────────────────────────────────────────────
+    setSaving(true);
+    setDbLog([`Importing ${questions.length} question(s) into questions table…`]);
+    setDbLog(prev => [...prev, "Checking fingerprints for duplicates against existing bank…"]);
+ 
+    try {
+      const res = await importQuestions(questions);
+      setResult(res);
+ 
+      if (res.inserted > 0)
+        setDbLog(prev => [...prev, `✓ ${res.inserted} new question(s) inserted`]);
+      if (res.skipped > 0)
+        setDbLog(prev => [...prev, `— ${res.skipped} question(s) already existed (skipped)`]);
+      if (res.errors.length > 0)
+        res.errors.forEach(e => setDbLog(prev => [...prev, `✗ ${e}`]));
+ 
+      setDbLog(prev => [...prev, "✓ Import complete"]);
+ 
+    } catch (e) {
+      setError(`Import failed: ${e.message}`);
+      setDbLog(prev => [...prev, `✗ ${e.message}`]);
+    } finally {
+      setSaving(false);
+    }
+  }
+ 
+  const SCHEMA_FIELDS = [
+    { field: "question",    type: "string",   req: true,  desc: "Full question text" },
+    { field: "options",     type: "string[]", req: true,  desc: "Answer choices (min 2, max 6)" },
+    { field: "answer",      type: "string",   req: true,  desc: "Correct option — must exactly match one of options" },
+    { field: "explanation", type: "string",   req: false, desc: "Why the answer is correct (shown in review)" },
+    { field: "topic",     type: "string",   req: false, desc: "Topic label e.g. CNS, CVS, GIT — used by Quiz Builder" },
+  ];
+ 
+  return (
+    <div style={styles.page}>
+      <h1 style={{ ...styles.dashTitle, ...(isMobile ? { fontSize: "22px" } : {}) }}>📥 Import Questions</h1>
+      <p style={styles.dashSub}>
+        Paste a JSON array of questions to add them directly to the question bank. No quiz is created — questions are available for the Quiz Builder immediately.
+      </p>
+ 
+      <div style={{ ...styles.createLayout, ...(isMobile ? styles.createLayoutMobile : {}) }}>
+ 
+        {/* ── Editor panel ── */}
+        <div style={styles.editorPanel}>
+          <div style={styles.editorHeader}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={styles.editorLabel}>JSON Array Input</span>
+              {previewCount > 0 && (
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "#6366f1", background: "#6366f115", border: "1px solid #6366f130", borderRadius: "20px", padding: "1px 10px" }}>
+                  {previewCount} question{previewCount !== 1 ? "s" : ""} detected
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              {isMobile && (
+                <button style={styles.resetBtn} onClick={() => setShowSchema(s => !s)}>
+                  {showSchema ? "Hide Schema" : "Schema"}
+                </button>
+              )}
+              <button style={styles.resetBtn} onClick={() => { setJson(QUESTIONS_TEMPLATE); setResult(null); setDbLog([]); setError(""); }}>
+                Reset
+              </button>
+            </div>
+          </div>
+ 
+          {isMobile && showSchema && (
+            <div style={{ marginBottom: "16px" }}>
+              <ImportSchemaCard fields={SCHEMA_FIELDS} />
+            </div>
+          )}
+ 
+          <textarea
+            style={{ ...styles.textarea, ...(isMobile ? { minHeight: "320px", fontSize: "12px", padding: "14px" } : {}) }}
+            value={json}
+            onChange={e => { setJson(e.target.value); setResult(null); }}
+            spellCheck={false}
+          />
+ 
+          {/* DB log */}
+          {dbLog.length > 0 && (
+            <div style={styles.dbLog}>
+              {dbLog.map((line, i) => (
+                <div key={i} style={styles.dbLogLine}>
+                  <span style={{ color: line.startsWith("✓") ? "#4ade80" : line.startsWith("✗") ? "#f87171" : line.startsWith("—") ? "#facc15" : "#6366f1" }}>
+                    {line.startsWith("✓") || line.startsWith("✗") || line.startsWith("—") ? "" : "›"}
+                  </span>
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+ 
+          {/* Result summary */}
+          {result && (
+            <div style={{
+              marginTop: "12px", padding: "14px 16px", borderRadius: "10px",
+              background: result.errors.length === 0 ? "#4ade8010" : "#facc1510",
+              border: `1px solid ${result.errors.length === 0 ? "#4ade8030" : "#facc1530"}`,
+              display: "flex", gap: "20px", flexWrap: "wrap",
+            }}>
+              {[
+                { label: "Inserted",  value: result.inserted, color: "#4ade80" },
+                { label: "Skipped",   value: result.skipped,  color: "#facc15" },
+                { label: "Errors",    value: result.errors.length, color: result.errors.length > 0 ? "#f87171" : t.text4 },
+              ].map(s => (
+                <div key={s.label} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                  <span style={{ fontSize: "20px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{s.value}</span>
+                  <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.8px" }}>{s.label}</span>
+                </div>
+              ))}
+              {result.errors.length > 0 && (
+                <div style={{ width: "100%", marginTop: "4px", fontSize: "11px", color: "#f87171", lineHeight: 1.6 }}>
+                  {result.errors.map((e, i) => <div key={i}>✗ {e}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+ 
+          {error && <div style={styles.errorBox}>⚠ {error}</div>}
+ 
+          <button
+            style={{
+              ...styles.createBtn,
+              ...(isMobile ? { width: "100%" } : {}),
+              ...(saving ? styles.createBtnSaving : {}),
+              ...(previewCount === 0 && !saving ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+            }}
+            onClick={handleImport}
+            disabled={saving || previewCount === 0}
+          >
+            {saving
+              ? "Importing questions…"
+              : `Import ${previewCount > 0 ? previewCount + " " : ""}Question${previewCount !== 1 ? "s" : ""} ↗`
+            }
+          </button>
+        </div>
+ 
+        {/* ── Right panel — schema + notes ── */}
+        {!isMobile && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <ImportSchemaCard fields={SCHEMA_FIELDS} />
+ 
+            {/* Key differences from Create Test
+            <div style={styles.schemaPanel}>
+              <h3 style={styles.schemaTitle}>How This Differs from Create Test</h3>
+              {[
+                { icon: "✓", text: "Root is a plain array [ ] — no quiz wrapper object needed" },
+                { icon: "✓", text: "subject field is important — Quiz Builder filters by it" },
+                { icon: "✓", text: "Duplicates are silently skipped (same question + answer)" },
+                { icon: "✓", text: "No quiz is created — questions go straight into the bank" },
+                { icon: "✓", text: "After import, refresh the subject_stats view to update the Quiz Builder topic list" },
+              ].map((item, i) => (
+                <div key={i} style={{ display: "flex", gap: "8px", fontSize: "12px", color: t.text3, lineHeight: 1.6, marginBottom: "6px" }}>
+                  <span style={{ color: "#4ade80", flexShrink: 0 }}>{item.icon}</span>
+                  {item.text}
+                </div>
+              ))}
+            </div> */}
+
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+ 
+// ─── Import Schema Card (reusable) ────────────────────────────────────────────
+function ImportSchemaCard({ fields }) {
+  const { t } = useTheme();
+  const styles = getStyles(t);
+  return (
+    <div style={styles.schemaPanel}>
+      <h3 style={styles.schemaTitle}>Question Object Schema</h3>
+      {fields.map(row => (
+        <div key={row.field} style={styles.schemaRow}>
+          <div style={styles.schemaField}>
+            <code style={styles.fieldCode}>{row.field}</code>
+            {row.req && <span style={styles.reqBadge}>required</span>}
+          </div>
+          <span style={styles.schemaType}>{row.type}</span>
+          <span style={styles.schemaDesc}>{row.desc}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2055,7 +2741,7 @@ export default function MockTestApp() {
         setAttempts([]);
       }
     });
-    return unsub;
+    return () => { clearTimeout(timeout); unsub(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
  
@@ -2251,7 +2937,29 @@ export default function MockTestApp() {
             <h2 style={{ color: t.text1, fontSize: "20px", fontWeight: "800" }}>Admin Only</h2>
             <p style={{ color: t.text4 }}>Only admins can create tests.</p>
           </div>
-        )}
+          )}
+
+          {page === "builder" && role === "admin" && (
+          <QuizBuilder onCreate={test => { handleCreate(test); setPage("dashboard"); }} />
+          )}
+          {page === "builder" && role !== "admin" && (
+            <div style={{ textAlign: "center", padding: "80px 20px" }}>
+              <div style={{ fontSize: "48px", marginBottom: "16px" }}>🔒</div>
+              <h2 style={{ color: t.text1, fontSize: "20px", fontWeight: "800" }}>Admin Only</h2>
+              <p style={{ color: t.text4 }}>Only admins can use the Quiz Builder.</p>
+            </div>
+          )}
+
+          {page === "import" && role === "admin" && (
+          <ImportQuestions />
+          )}
+          {page === "import" && role !== "admin" && (
+            <div style={{ textAlign: "center", padding: "80px 20px" }}>
+              <div style={{ fontSize: "48px", marginBottom: "16px" }}>🔒</div>
+              <h2 style={{ color: t.text1, fontSize: "20px", fontWeight: "800" }}>Admin Only</h2>
+              <p style={{ color: t.text4 }}>Only admins can import questions.</p>
+            </div>
+          )}
         </main>
     </>
   );
