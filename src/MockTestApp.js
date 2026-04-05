@@ -685,6 +685,29 @@ function AttemptDetailPage({ attempt, onBack }) {
   const timeStr = dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const passColor = detail.passed ? "#4ade80" : "#f87171";
  
+  // ── Derived stats (mirrors Results component) ─────────────────────────────
+  const attempted = detail.correct + detail.incorrect;
+  const accuracy  = attempted > 0 ? Math.round((detail.correct / attempted) * 100) : 0;
+  const avgTime   = detail.total > 0 ? Math.round(detail.timeTaken / detail.total) : 0;
+  const posM      = detail.positiveMarking ?? 1;
+  const negM      = detail.negativeMarking ?? 0.25;
+ 
+  // ── Adapt detail.answers → TopicTracker-compatible shapes ─────────────────
+  // TopicTracker expects:
+  //   questions[i] = { question, options, answer, explanation, subject }
+  //   answers      = { [i]: selectedAnswerString | null }
+  const trackerQuestions = detail.answers.map(a => ({
+    question:    a.question,
+    options:     a.options,
+    answer:      a.correctAnswer,
+    explanation: a.explanation,
+    topic:     a.topic,
+  }));
+  const trackerAnswers = {};
+  detail.answers.forEach((a, i) => {
+    trackerAnswers[i] = a.selectedAnswer ?? null;
+  });
+
   const filterCounts = {
     all:        detail.answers.length,
     correct:    detail.answers.filter(a => a.status === "correct").length,
@@ -718,27 +741,90 @@ function AttemptDetailPage({ attempt, onBack }) {
         </div>
       </div>
  
-      {/* Score summary */}
-      <div style={{ display: "flex", gap: "16px", padding: "16px 20px", background: t.bgCard, border: `1px solid ${t.border}`, borderLeft: `4px solid ${passColor}`, borderRadius: "10px", marginBottom: "28px", alignItems: "center", flexWrap: "wrap" }}>
-        {/* Big score */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "64px" }}>
-          <span style={{ fontSize: "28px", fontWeight: "800", color: passColor, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{detail.pct}%</span>
-          <span style={{ fontSize: "10px", color: passColor, textTransform: "uppercase", fontWeight: "700", marginTop: "3px" }}>{detail.passed ? "Passed" : "Failed"}</span>
-        </div>
-        <div style={{ width: "1px", background: t.border, alignSelf: "stretch", flexShrink: 0 }} />
-        {[
-          { label: "Score",     value: `${detail.score}/${detail.total}`, color: passColor },
-          { label: "Correct",   value: detail.correct,   color: "#4ade80" },
-          { label: "Wrong",     value: detail.incorrect,  color: "#f87171" },
-          { label: "Skipped",   value: detail.unanswered, color: t.text3  },
-          { label: "Time",      value: formatTime(detail.timeTaken), color: "#6366f1" },
-        ].map(s => (
-          <div key={s.label} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-            <span style={{ fontSize: "10px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.8px" }}>{s.label}</span>
-            <span style={{ fontSize: "16px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace" }}>{s.value}</span>
+      {/* ── Full stats card — mirrors Results summary ── */}
+      <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderLeft: `4px solid ${passColor}`, borderRadius: "12px", padding: isMobile ? "16px" : "20px 24px", marginBottom: "24px" }}>
+ 
+        <h1 style={{ fontSize: isMobile ? "20px" : "24px", fontWeight: "800", color: t.text1, margin: 0, letterSpacing: "-0.5px", marginBottom: "20px" }}>
+          Overall Performance Summary
+        </h1>
+ 
+        {/* Score circle + stat grids — side by side on desktop, stacked on mobile */}
+        <div style={{ display: "flex", gap: "20px", alignItems: "stretch", flexDirection: isMobile ? "column" : "row" }}>
+ 
+          {/* Score ring — diameter = (76×2)+10 = 162px */}
+          <div style={{ position: "relative", flexShrink: 0, ...(isMobile ? { display: "flex", justifyContent: "center" } : {}) }}>
+            <svg width="162" height="162" viewBox="0 0 162 162" style={{ display: "block", ...(isMobile ? { margin: "0 auto" } : {}) }}>
+              <circle cx="81" cy="81" r="68" fill="none" stroke={t.bgDeep} strokeWidth="11" />
+              <circle cx="81" cy="81" r="68" fill="none" stroke={passColor} strokeWidth="11"
+                strokeDasharray={`${2 * Math.PI * 68}`}
+                strokeDashoffset={`${2 * Math.PI * 68 * (1 - Math.min(detail.pct, 100) / 100)}`}
+                strokeLinecap="round" transform="rotate(-90 81 81)"
+                style={{ transition: "stroke-dashoffset 1.2s ease" }}
+              />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: "22px", fontWeight: "800", color: passColor, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{detail.score}</span>
+              <span style={{ fontSize: "11px", color: t.text4, marginTop: "3px" }}>/ {detail.total}</span>
+              </div>
           </div>
-        ))}
+ 
+          {/* Stat grids */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "10px" }}>
+ 
+            {/* Row 1 — Performance */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+              {[
+                { label: "Percentage",     value: `${detail.pct}%`,       color: passColor  },
+                { label: "Accuracy",       value: `${accuracy}%`,          color: "#6366f1"  },
+                { label: "Total Time",     value: formatTime(detail.timeTaken), color: "#6366f1" },
+                { label: "Avg Time", value: `${avgTime}s`,           color: t.text2    },
+              ].map(s => (
+                <div key={s.label} style={{
+                  background: t.bgDeep, borderRadius: "10px",
+                  height: "76px", display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center", gap: "5px",
+                  padding: "0 6px", textAlign: "center",
+                }}>
+                  <span style={{ fontSize: isMobile ? "14px" : "17px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{s.value}</span>
+                  <span style={{ fontSize: "9px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.6px", whiteSpace: "nowrap" }}>{s.label}</span>
+                </div>
+              ))}
+            </div>
+ 
+            {/* Row 2 — Question counts with marks pills */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+              {[
+                { label: "Correct",   value: detail.correct,    color: "#4ade80", bg: "#4ade8010", border: "#4ade8025", pill: `↑ +${posM}`,   pillColor: "#4ade80", pillBg: "#4ade8020", pillBorder: "#4ade8040" },
+                { label: "Incorrect", value: detail.incorrect,  color: "#f87171", bg: "#f8717110", border: "#f8717125", pill: `↓ −${negM}`,   pillColor: "#f87171", pillBg: "#f8717120", pillBorder: "#f8717140" },
+                { label: "Skipped",   value: detail.unanswered, color: t.text3,   bg: t.bgDeep,   border: t.border,    pill: "— No mark",     pillColor: t.text4,   pillBg: t.bgHover,  pillBorder: t.borderMid  },
+                { label: "Flagged",   value: detail.tabSwitches > 0 ? `${filterCounts.flagged} (⚠${detail.tabSwitches})` : filterCounts.flagged,
+                  color: "#facc15", bg: "#facc1510", border: "#facc1525", pill: "🚩 Marked", pillColor: "#facc15", pillBg: "#facc1520", pillBorder: "#facc1540" },
+              ].map(s => (
+                <div key={s.label} style={{
+                  background: s.bg, border: `1px solid ${s.border}`, borderRadius: "10px",
+                  height: "76px", display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center", gap: "4px",
+                  padding: "0 6px", textAlign: "center",
+                }}>
+                  <span style={{ fontSize: isMobile ? "14px" : "17px", fontWeight: "800", color: s.color, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{s.value}</span>
+                  <span style={{ fontSize: "9px", color: t.text4, textTransform: "uppercase", letterSpacing: "0.6px" }}>{s.label}</span>
+                  <span style={{ fontSize: "9px", fontWeight: "700", color: s.pillColor, background: s.pillBg, border: `1px solid ${s.pillBorder}`, borderRadius: "20px", padding: "1px 7px", whiteSpace: "nowrap" }}>{s.pill}</span>
+                </div>
+              ))}
+            </div>
+ 
+          </div>
+        </div>
       </div>
+ 
+      {/* ── Topic Wise Analysis ── */}
+      <div style={{ marginBottom: "8px" }}>
+        <h2 style={{ fontSize: isMobile ? "18px" : "22px", fontWeight: "800", color: t.text1, margin: "0 0 14px", letterSpacing: "-0.5px" }}>Topic Wise Analysis</h2>
+        <TopicTracker questions={trackerQuestions} answers={trackerAnswers} />
+      </div>
+ 
+      {/* ── Question Review ── */}
+      <h2 style={{ fontSize: isMobile ? "18px" : "22px", fontWeight: "800", color: t.text1, margin: "0 0 14px", letterSpacing: "-0.5px" }}>Question Review</h2>
  
       {/* Filter bar */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
@@ -747,7 +833,7 @@ function AttemptDetailPage({ attempt, onBack }) {
           { key: "correct",    label: `✓ Correct (${filterCounts.correct})` },
           { key: "wrong",      label: `✗ Wrong (${filterCounts.wrong})` },
           { key: "unanswered", label: `— Skipped (${filterCounts.unanswered})` },
-          ...(filterCounts.flagged > 0 ? [{ key: "flagged", label: `🚩 Flagged (${filterCounts.flagged})` }] : []),
+          { key: "flagged",    label: `🚩 Flagged (${filterCounts.flagged})` },
         ].map(f => (
           <button
             key={f.key}
@@ -782,7 +868,7 @@ function AttemptDetailPage({ attempt, onBack }) {
                 <span style={{ fontSize: "15px", fontWeight: "800", color: statusColor, width: "20px", flexShrink: 0, textAlign: "center" }}>{statusIcon}</span>
                 <span style={{ fontSize: "12px", color: t.text4, width: "32px", flexShrink: 0, fontFamily: "'IBM Plex Mono', monospace" }}>Q{a.position}</span>
                 {a.isFlagged && <span style={{ fontSize: "11px", flexShrink: 0 }}>🚩</span>}
-                <span style={{ flex: 1, fontSize: "13px", color: t.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{a.question}</span>
+                <span style={{ flex: 1, fontSize: "13px", color: t.text2, whiteSpace: "normal", wordBreak: "break-word" }}>{a.question}</span>
                 <span style={{ color: t.text4, fontSize: "14px", flexShrink: 0 }}>{expanded ? "▲" : "▼"}</span>
               </div>
  
@@ -811,13 +897,6 @@ function AttemptDetailPage({ attempt, onBack }) {
                       );
                     })}
                   </div>
- 
-                  {/* Unanswered notice */}
-                  {a.status === "unanswered" && (
-                    <div style={{ marginTop: "12px", padding: "10px 14px", background: "#64748b15", border: `1px solid #64748b30`, borderRadius: "8px", fontSize: "12px", color: t.text4 }}>
-                      — This question was not attempted
-                    </div>
-                  )}
  
                   {/* Explanation */}
                   {a.explanation && a.status !== "correct" && (
@@ -2447,7 +2526,6 @@ function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onRet
             { key: "wrong",      label: `✗ Wrong (${filterCounts.wrong})` },
             { key: "unanswered", label: `— Skipped (${filterCounts.unanswered})` },
             { key: "flagged", label: `🚩 Flagged (${filterCounts.flagged})` }
-            // ...(nFlagged > 0 ? [{ key: "flagged", label: `🚩 Flagged (${filterCounts.flagged})` }] : []),
           ].map(f => (
             <button key={f.key} onClick={() => { setFilter(f.key); setExpandedIdx(null); }} style={{
               padding: "6px 14px", borderRadius: "20px", fontFamily: "inherit", fontSize: "12px", cursor: "pointer",
@@ -2488,7 +2566,6 @@ function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onRet
                     {q.topic}
                   </span>
                 )} */}
-                {/* <span style={{ flex: 1, fontSize: "13px", color: t.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{q.question}</span> */}
                 <span style={{ flex: 1, fontSize: "13px", color: t.text2, whiteSpace: "normal", wordBreak: "break-word" }}>{q.question}</span>
                 <span style={{ color: t.text4, fontSize: "13px", flexShrink: 0, marginLeft: "8px" }}>{expanded ? "▲" : "▼"}</span>
               </div>
@@ -2517,13 +2594,6 @@ function Results({ test, answers, timeTaken, flagged, tabSwitches, onBack, onRet
                       );
                     })}
                   </div>
- 
-                  {/* Unanswered notice */}
-                  {/* {isSkipped && (
-                    <div style={{ marginTop: "12px", padding: "10px 14px", background: `${t.bgDeep}`, border: `1px solid ${t.border}`, borderRadius: "8px", fontSize: "12px", color: t.text4 }}>
-                      — This question was not attempted
-                    </div>
-                  )} */}
  
                   {/* Explanation — shown for ALL questions (correct, wrong, skipped) */}
                   {q.explanation && (
@@ -3161,7 +3231,7 @@ function getStyles(t) { return {
     padding: "12px 32px", background: t.bgCard, borderBottom: `1px solid ${t.border}`
   },
   timerLeft: {},
-  testTitleSmall: { fontSize: "18px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700" },
+  testTitleSmall: { fontSize: "16px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700" },
   timerDisplay: {
     display: "flex", alignItems: "center", gap: "8px",
     background: t.bgHover, padding: "8px 20px", borderRadius: "8px"
@@ -3197,7 +3267,7 @@ function getStyles(t) { return {
   submitSideBtn: {
     marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
     color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "18px"
+    fontFamily: "inherit", fontWeight: "700", fontSize: "16px"
   },
   submitTimerBtn: {
     padding: "7px 18px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",

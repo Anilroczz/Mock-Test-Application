@@ -570,7 +570,7 @@ export async function fetchAttemptDetail(attemptId) {
     .from("attempt_answers")
     .select(`
       position, selected_answer, is_correct, is_flagged,
-      questions ( id, question, options, answer, explanation )
+      questions ( id, question, options, answer, explanation, topic )
     `)
     .eq("attempt_id", attemptId)
     .order("position", { ascending: true });
@@ -605,6 +605,7 @@ export async function fetchAttemptDetail(attemptId) {
       options:        a.questions?.options,
       correctAnswer:  a.questions?.answer,
       explanation:    a.questions?.explanation,
+      topic:          a.questions?.topic,
       status:         a.selected_answer === null ? "unanswered"
                     : a.is_correct              ? "correct"
                     :                             "wrong",
