@@ -112,28 +112,38 @@ function Nav({ page, setPage, testsCount }) {
   const { user, role, handleSignOut } = useAuth();
   const isMobile = useIsMobile();
   const styles = getStyles(t);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const menuRef = useRef(null);
+  const [showUserMenu,   setShowUserMenu]   = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const menuRef   = useRef(null);
+  const createRef = useRef(null);
  
-  // Close dropdown when clicking outside
+  // Close dropdowns on outside click
   useEffect(() => {
-    if (!showUserMenu) return;
     const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setShowUserMenu(false);
+      if (menuRef.current   && !menuRef.current.contains(e.target))   setShowUserMenu(false);
+      if (createRef.current && !createRef.current.contains(e.target)) setShowCreateMenu(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [showUserMenu]);
+  }, []);
  
   const avatarLetter = user?.email?.[0]?.toUpperCase() || "U";
+  const createPages  = ["create", "builder", "import"];
+  const isCreateActive = createPages.includes(page);
+ 
+  const CREATE_OPTIONS = [
+    { page: "create",  icon: " ＋ ", label: "+ New Test",   desc: "Paste JSON to create a quiz" },
+    { page: "builder", icon: "⚡", label: "⚡Builder",    desc: "Build from question bank"    },
+    { page: "import",  icon: "📥", label: "📥 Import",    desc: "Import questions directly"   },
+  ];
  
   return (
     <nav style={styles.nav}>
-      {/* Brand — hide text on mobile to save space */}
+      {/* Brand */}
       <div style={{ ...styles.navBrand, cursor: "pointer" }} onClick={() => setPage("dashboard")}>
         <div style={styles.navLogo}>▲</div>
-        {/* {!isMobile && <span style={styles.navTitle}>EXAMFORGE</span>} */}
         <span style={styles.navTitle}>EXAMFORGE</span>
+        {/* {!isMobile && <span style={styles.navTitle}>EXAMFORGE</span>} */}
       </div>
  
       {/* Controls */}
@@ -147,48 +157,56 @@ function Nav({ page, setPage, testsCount }) {
           {isMobile ? "🏠" : <span>Dashboard <span style={styles.navBadge}>{testsCount}</span></span>}
         </button>
  
-        {/* New test — admin only */}
+        {/* Create dropdown — admin only */}
         {role === "admin" && (
-          <>
+          <div ref={createRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
-              onClick={() => setPage("create")}
-              style={{ ...styles.navBtn, ...(page === "create" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
+              onClick={() => setShowCreateMenu(m => !m)}
+              style={{
+                ...styles.navBtn,
+                ...(isCreateActive ? styles.navBtnActive : {}),
+                ...(isMobile ? { padding: "8px 10px" } : {}),
+                display: "flex", alignItems: "center", gap: "5px",
+              }}
             >
-              {isMobile ? "＋" : "+ New Test"}
+              {isMobile ? "＋" : "＋ Create"}
             </button>
-
-            <button
-                onClick={() => setPage("builder")}
-                style={{ ...styles.navBtn, ...(page === "builder" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
-              >
-              {isMobile ? "🔧" : "⚡ Builder"}
-            </button>
-
-            <button
-              onClick={() => setPage("import")}
-              style={{ ...styles.navBtn, ...(page === "import" ? styles.navBtnActive : {}), ...(isMobile ? { padding: "8px 10px" } : {}) }}
-            >
-              {isMobile ? "📥" : "📥 Import"}
-            </button>
-          </>
+ 
+            {showCreateMenu && (
+              <div style={{
+                position: "fixed",
+                // align under the create button — approximate right edge
+                right: isMobile ? "clamp(12px, 4vw, 32px)" : "auto",
+                left: isMobile ? "auto" : undefined,
+                top: "64px",
+                background: t.bgCard, border: `1px solid ${t.border}`,
+                borderRadius: "12px", padding: "6px",
+                minWidth: "200px", zIndex: 9999,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+              }}>
+                {CREATE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.page}
+                    onClick={() => { setShowCreateMenu(false); setPage(opt.page); }}
+                    style={{
+                      width: "100%", padding: "10px 12px", background: page === opt.page ? "#6366f115" : "transparent",
+                      border: `1px solid ${page === opt.page ? "#6366f130" : "transparent"}`,
+                      borderRadius: "8px", color: page === opt.page ? "#6366f1" : t.text1,
+                      cursor: "pointer", fontFamily: "inherit", fontSize: "14px",
+                      textAlign: "left", display: "flex", flexDirection: "column", gap: "2px",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    <span style={{ fontWeight: "700", fontSize: "14px" }}>{opt.label}</span>
+                    <span style={{ fontSize: "12px", color: t.text4 }}>{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
  
-        {/* Theme toggle — icon only on mobile */}
-        <button
-          onClick={toggle}
-          style={{
-            background: t.bgHover, border: `1px solid ${t.borderMid}`, borderRadius: "8px",
-            padding: isMobile ? "8px 10px" : "6px 14px",
-            cursor: "pointer", fontSize: isMobile ? "15px" : "13px",
-            color: t.text3, fontFamily: "inherit",
-            display: "flex", alignItems: "center", gap: "6px", flexShrink: 0,
-          }}
-        >
-          {isDark ? "☀️" : "🌙"}
-          {!isMobile && (isDark ? " Light" : " Dark")}
-        </button>
- 
-        {/* User avatar button — avatar only on mobile */}
+        {/* User avatar button */}
         <div ref={menuRef} style={{ position: "relative", flexShrink: 0, zIndex: 200 }}>
           <button
             onClick={() => setShowUserMenu(m => !m)}
@@ -198,16 +216,14 @@ function Nav({ page, setPage, testsCount }) {
               display: "flex", alignItems: "center", gap: "6px",
             }}
           >
-            {/* Avatar circle */}
             <span style={{
               width: "28px", height: "28px", borderRadius: "50%",
               background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "12px", color: "white", fontWeight: "700", flexShrink: 0,
+              fontSize: "14px", color: "white", fontWeight: "700", flexShrink: 0,
             }}>
               {avatarLetter}
             </span>
-            {/* Desktop: show ADMIN badge or email */}
             {!isMobile && role === "admin" && (
               <span style={{ fontSize: "10px", background: "#6366f120", color: "#6366f1", border: "1px solid #6366f140", borderRadius: "4px", padding: "2px 6px", fontWeight: "700" }}>ADMIN</span>
             )}
@@ -216,14 +232,15 @@ function Nav({ page, setPage, testsCount }) {
             )}
           </button>
  
-          {/* Dropdown — fixed so it escapes the sticky nav stacking context */}
+          {/* User dropdown — fixed to escape sticky nav */}
           {showUserMenu && (
             <div style={{
               position: "fixed", right: "clamp(12px, 4vw, 32px)", top: "64px",
               background: t.bgCard, border: `1px solid ${t.border}`,
-              borderRadius: "12px", padding: "8px", minWidth: "200px",
+              borderRadius: "12px", padding: "8px", minWidth: "210px",
               zIndex: 9999, boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
             }}>
+              {/* User info */}
               <div style={{ padding: "10px 12px", borderBottom: `1px solid ${t.border}`, marginBottom: "6px" }}>
                 <div style={{ fontSize: "13px", fontWeight: "700", color: t.text1, marginBottom: "2px" }}>
                   {user?.user_metadata?.full_name || "User"}
@@ -231,12 +248,43 @@ function Nav({ page, setPage, testsCount }) {
                 <div style={{ fontSize: "11px", color: t.text4, wordBreak: "break-all" }}>{user?.email}</div>
                 <div style={{ fontSize: "10px", color: "#6366f1", fontWeight: "700", marginTop: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{role}</div>
               </div>
+ 
+              {/* Theme toggle row */}
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "9px 12px", borderRadius: "6px",
+                borderBottom: `1px solid ${t.border}`, marginBottom: "6px",
+              }}>
+                <span style={{ fontSize: "14px", color: t.text2 }}>
+                  {isDark ? "🌙 Dark mode" : "☀️ Light mode"}
+                </span>
+                {/* Toggle switch */}
+                <div
+                  onClick={toggle}
+                  style={{
+                    width: "40px", height: "22px", borderRadius: "11px",
+                    background: isDark ? "#6366f1" : t.bgHover,
+                    border: `1px solid ${isDark ? "#6366f1" : t.borderMid}`,
+                    cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0,
+                  }}
+                >
+                  <div style={{
+                    position: "absolute", top: "3px",
+                    left: isDark ? "19px" : "3px",
+                    width: "14px", height: "14px", borderRadius: "50%",
+                    background: "white", transition: "left 0.18s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                  }} />
+                </div>
+              </div>
+ 
+              {/* Sign out */}
               <button
                 onClick={() => { setShowUserMenu(false); handleSignOut(); }}
                 style={{
                   width: "100%", padding: "9px 12px", background: "transparent",
                   border: "none", color: "#f87171", cursor: "pointer",
-                  fontFamily: "inherit", fontSize: "13px", textAlign: "left", borderRadius: "6px",
+                  fontFamily: "inherit", fontSize: "14px", textAlign: "left", borderRadius: "6px",
                 }}
               >
                 ↪ Sign Out
@@ -254,17 +302,58 @@ function Nav({ page, setPage, testsCount }) {
 function Dashboard({ tests, onStart, onDelete, onViewAttempts, loading, error }) {
   const { t } = useTheme();
   const styles = getStyles(t);
+  const [search, setSearch] = useState(""); 
+
+  const filtered = search.trim()
+    ? tests.filter(test =>
+        test.title?.toLowerCase().includes(search.toLowerCase()) ||
+        test.topic?.toLowerCase().includes(search.toLowerCase())
+      )
+    : tests;
+
   return (
     <div style={styles.page}>
       <div style={styles.dashHeader}>
         <div>
           <h1 style={styles.dashTitle}>Test Library</h1>
           <p style={styles.dashSub}>
-            {loading ? "Loading tests…" : `${tests.length} mock test${tests.length !== 1 ? "s" : ""} available`}
+            {loading ? "Loading tests…" : `Total ${tests.length} mock test${tests.length !== 1 ? "s" : ""} available`}
           </p>
         </div>
       </div>
- 
+
+      {/* Search bar */}
+      {!loading && tests.length > 0 && (
+        <div style={{ marginBottom: "20px", position: "relative" }}>
+          <span style={{
+            position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)",
+            fontSize: "14px", pointerEvents: "none", opacity: 0.5,
+          }}>🔍</span>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by title or subject…"
+            style={{
+              width: "100%", boxSizing: "border-box",
+              padding: "10px 36px 10px 36px",
+              background: t.bgCard, border: `1px solid ${search ? "#6366f1" : t.borderMid}`,
+              borderRadius: "10px", color: t.text1, fontFamily: "inherit", fontSize: "15px",
+              outline: "none", transition: "border-color 0.15s", fontWeight: "400"
+            }}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              style={{
+                position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: "14px", color: t.text4, padding: "2px 4px",
+              }}
+            >✕</button>
+          )}
+        </div>
+      )}
+
       {error && (
         <div style={styles.dbErrorBox}>
           <span style={styles.dbErrorIcon}>⚠</span>
@@ -286,12 +375,41 @@ function Dashboard({ tests, onStart, onDelete, onViewAttempts, loading, error })
           <h2 style={styles.emptyTitle}>No tests yet</h2>
           <p style={styles.emptySub}>Create your first mock test to get started</p>
         </div>
-      ) : (
-        <div style={styles.cardGrid}>
-          {tests.map(test => (
-            <TestCard key={test.id} test={test} onStart={onStart} onDelete={onDelete} onViewAttempts={onViewAttempts} />
-          ))}
+      ) : filtered.length === 0 ? (
+        <div style={styles.emptyState}>
+          <div style={styles.emptyIcon}>🔍</div>
+          <h2 style={styles.emptyTitle}>No matches for "{search}"</h2>
+          <p style={styles.emptySub}>Try searching by subject name like CNS, CVS or GIT</p>
+          <button
+            onClick={() => setSearch("")}
+            style={{ marginTop: "12px", padding: "8px 20px", borderRadius: "8px", border: `1px solid ${t.borderMid}`, background: "transparent", color: t.text3, cursor: "pointer", fontFamily: "inherit", fontSize: "13px" }}
+          >
+            Clear search
+          </button>
         </div>
+      ) : (
+        <>
+          <p style={styles.dashSub}>
+            {loading ? (
+              "Loading tests…"
+            ) : search ? ( 
+              <>
+                {filtered.length} mock test
+                {filtered.length !== 1 ? "s" : ""} matched your search{" "}
+                {search && (
+                  <span style={{fontSize: "15px", fontWeight: "700", textTransform: "uppercase"}}>
+                    "{search}"
+                  </span>
+                )}
+              </>
+            ) : ""}
+          </p>
+          <div style={styles.cardGrid}>
+            {filtered.map(test => (
+              <TestCard key={test.id} test={test} onStart={onStart} onDelete={onDelete} onViewAttempts={onViewAttempts} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -2955,8 +3073,8 @@ function getStyles(t) { return {
   navBtn: {
     padding: "8px 20px", borderRadius: "6px", border: `1px solid ${t.border}`,
     background: "transparent", color: t.text3, cursor: "pointer",
-    fontSize: "13px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
-    transition: "all 0.2s"
+    fontSize: "14px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "8px",
+    transition: "all 0.2s", fontWeight: "540"
   },
   navBtnActive: { background: t.bgHover, color: t.text2, borderColor: "#334155" },
   navBadge: {
@@ -2969,7 +3087,7 @@ function getStyles(t) { return {
   // DASHBOARD
   dashHeader: { marginBottom: "32px" },
   dashTitle: { fontSize: "clamp(22px, 5vw, 32px)", fontWeight: "700", color: t.text1, margin: 0, letterSpacing: "-0.5px" },
-  dashSub: { color: t.text4, marginTop: "6px", fontSize: "14px" },
+  dashSub: { color: t.text4, marginTop: "6px", fontSize: "14px", fontWeight: "500" },
   cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: "16px" },
   card: {
     background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: "12px",
