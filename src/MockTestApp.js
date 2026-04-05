@@ -1168,6 +1168,7 @@ function ImportQuestions() {
         if (!Array.isArray(q.options) || q.options.length < 2) throw new Error(`Question ${n}: "options" must be an array with at least 2 items.`);
         if (!q.answer?.trim())                                throw new Error(`Question ${n}: missing "answer" field.`);
         if (!q.options.includes(q.answer))                    throw new Error(`Question ${n}: "answer" must exactly match one of the options.`);
+        if (!q.topic?.trim())                                throw new Error(`Question ${n}: missing "topic" field.`);
       });
  
       // Check for duplicates within the submitted JSON itself
@@ -1213,8 +1214,8 @@ function ImportQuestions() {
     { field: "question",    type: "string",   req: true,  desc: "Full question text" },
     { field: "options",     type: "string[]", req: true,  desc: "Answer choices (min 2, max 6)" },
     { field: "answer",      type: "string",   req: true,  desc: "Correct option — must exactly match one of options" },
-    { field: "explanation", type: "string",   req: false, desc: "Why the answer is correct (shown in review)" },
-    { field: "topic",     type: "string",   req: false, desc: "Topic label e.g. CNS, CVS, GIT — used by Quiz Builder" },
+    { field: "explanation", type: "string",   req: true, desc: "Why the answer is correct (shown in review)" },
+    { field: "topic",     type: "string",   req: true, desc: "Topic label e.g. CNS, CVS, GIT — used by Quiz Builder" },
   ];
  
   return (
@@ -1325,24 +1326,6 @@ function ImportQuestions() {
         {!isMobile && (
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <ImportSchemaCard fields={SCHEMA_FIELDS} />
- 
-            {/* Key differences from Create Test
-            <div style={styles.schemaPanel}>
-              <h3 style={styles.schemaTitle}>How This Differs from Create Test</h3>
-              {[
-                { icon: "✓", text: "Root is a plain array [ ] — no quiz wrapper object needed" },
-                { icon: "✓", text: "subject field is important — Quiz Builder filters by it" },
-                { icon: "✓", text: "Duplicates are silently skipped (same question + answer)" },
-                { icon: "✓", text: "No quiz is created — questions go straight into the bank" },
-                { icon: "✓", text: "After import, refresh the subject_stats view to update the Quiz Builder topic list" },
-              ].map((item, i) => (
-                <div key={i} style={{ display: "flex", gap: "8px", fontSize: "12px", color: t.text3, lineHeight: 1.6, marginBottom: "6px" }}>
-                  <span style={{ color: "#4ade80", flexShrink: 0 }}>{item.icon}</span>
-                  {item.text}
-                </div>
-              ))}
-            </div> */}
-
           </div>
         )}
       </div>
@@ -1511,7 +1494,6 @@ function CreateTest({ onCreate }) {
         {!isMobile && (
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <SchemaReference />
-            {/* <ArchitectureCard /> */}
           </div>
         )}
       </div>
@@ -1550,30 +1532,6 @@ function SchemaReference() {
     </div>
   );
 }
-
-// ─── Architecture Card ────────────────────────────────────────────────────────
-// function ArchitectureCard() {
-//  const { t } = useTheme();
-// const styles = getStyles(t);
-//   return (
-//     <div style={{ ...styles.schemaPanel, gap: "10px" }}>
-//       <h3 style={styles.schemaTitle}>Question Bank Architecture</h3>
-//       {[
-//         { table: "quizzes", color: "#6366f1", desc: "Quiz title, subject, duration, marking scheme" },
-//         { table: "questions", color: "#4ade80", desc: "Question text, options[], answer, explanation" },
-//         { table: "questions_quizzes", color: "#facc15", desc: "Many-to-many join: quiz_id ↔ question_id + position" },
-//       ].map(row => (
-//         <div key={row.table} style={styles.archRow}>
-//           <span style={{ ...styles.archTable, borderColor: row.color, color: row.color }}>{row.table}</span>
-//           <span style={styles.schemaDesc}>{row.desc}</span>
-//         </div>
-//       ))}
-//       <p style={{ ...styles.schemaDesc, marginTop: "4px", lineHeight: 1.6 }}>
-//         Questions are <strong style={{ color: "#a5f3fc" }}>deduplicated</strong> — identical questions shared across quizzes are stored once and linked via the join table.
-//       </p>
-//     </div>
-//   );
-// }
 
 // ─── Test Interface ───────────────────────────────────────────────────────────
 function TestInterface({ test, onFinish, onBack, onAttemptSaved, onRetake}) {
@@ -1804,6 +1762,9 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved, onRetake}) {
                 </span>
               )}
               <span style={styles.timerProgress}>{answered}/{totalQ} answered</span>
+              <button style={styles.submitSideBtn} onClick={handleSubmit}>
+                Submit Test
+              </button>
             </div>
           )}
         </div>
@@ -1825,7 +1786,7 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved, onRetake}) {
             <span style={styles.sidebarLabel}>Questions</span>
             <button style={styles.closeDrawerBtn} onClick={() => setShowQNav(false)}>✕</button>
           </div>
-          <div style={styles.qGrid}>
+          <div style={styles.qGridMob}>
             {shuffledTest.questions.map((_, i) => {
               const isAnswered = answers[i] !== undefined && answers[i] !== null;
               const isCurrent = i === current;
@@ -1885,9 +1846,6 @@ function TestInterface({ test, onFinish, onBack, onAttemptSaved, onRetake}) {
               <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#4ade80" }} /> Answered</span>
               <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#facc15" }} /> Flagged</span>
             </div>
-            <button style={styles.submitSideBtn} onClick={handleSubmit}>
-              Submit Test
-            </button>
           </div>
         )}
 
@@ -2106,7 +2064,7 @@ function TopicTracker({ questions, answers }) {
                 padding: "14px 16px", borderRight: `1px solid ${t.border}`,
                 display: "flex", flexDirection: "column", justifyContent: "center", gap: "8px",
               }}>
-                <span style={{ fontSize: isMobile ? "12px" : "13px", fontWeight: "700", color: t.text1, lineHeight: 1.3 }}>{topicName}</span>
+                <span style={{ fontSize: isMobile ? "12px" : "13px", fontWeight: "700", color: t.text1, lineHeight: 1.3, wordBreak: isMobile ? "break-word" : "normal" }}>{topicName}</span>
                 <div>
                   {/* Progress bar */}
                   <div style={{ height: "4px", background: t.bgDeep, borderRadius: "4px", overflow: "hidden", marginBottom: "3px" }}>
@@ -3085,7 +3043,7 @@ function getStyles(t) { return {
     padding: "12px 32px", background: t.bgCard, borderBottom: `1px solid ${t.border}`
   },
   timerLeft: {},
-  testTitleSmall: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+  testTitleSmall: { fontSize: "18px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace", fontWeight: "700" },
   timerDisplay: {
     display: "flex", alignItems: "center", gap: "8px",
     background: t.bgHover, padding: "8px 20px", borderRadius: "8px"
@@ -3094,21 +3052,23 @@ function getStyles(t) { return {
   timerIcon: { fontSize: "16px" },
   timerText: { fontSize: "20px", fontWeight: "700", fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "2px" },
   timerRight: {},
-  timerProgress: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+  timerProgress: { fontSize: "14px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace", fontWeight: "600" },
   timerTrack: { height: "3px", background: t.bgHover },
   timerFill: { height: "100%", transition: "width 1s linear" },
   testBody: { display: "flex", flex: 1 },
   // SIDEBAR
   sidebar: {
-    width: "220px", background: t.bgCard, borderRight: `1px solid ${t.border}`,
+    width: "240px", background: t.bgCard, borderRight: `1px solid ${t.border}`,
     padding: "24px 16px", display: "flex", flexDirection: "column", gap: "16px"
   },
-  sidebarLabel: { fontSize: "11px", fontWeight: "600", color: t.text4, letterSpacing: "2px", textTransform: "uppercase", margin: 0 },
-  qGrid: { display: "flex", flexWrap: "wrap", gap: "6px" },
+  sidebarLabel: { fontSize: "14px", fontWeight: "600", color: t.text4, letterSpacing: "2px", textTransform: "uppercase", margin: 0 },
+  qGrid: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "6px" },
+  qGridMob: { display: "flex", flexWrap: "wrap", gap: "6px" },
   qDot: {
     width: "36px", height: "36px", borderRadius: "8px",
     background: t.bgHover, border: `1px solid ${t.borderMid}`, color: t.text3,
-    cursor: "pointer", fontSize: "12px", fontWeight: "600", fontFamily: "inherit"
+    cursor: "pointer", fontSize: "13px", fontWeight: "700", fontFamily: "inherit",
+    display: "flex", alignItems: "center", justifyContent: "center",
   },
   qDotCurrent: { background: "#6366f1", border: "1px solid #6366f1", color: "white" },
   qDotAnswered: { background: "#4ade8020", border: "1px solid #4ade8060", color: "#4ade80" },
@@ -3119,15 +3079,20 @@ function getStyles(t) { return {
   submitSideBtn: {
     marginTop: "auto", padding: "12px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
     color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+    fontFamily: "inherit", fontWeight: "700", fontSize: "18px"
+  },
+  submitTimerBtn: {
+    padding: "7px 18px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    color: "white", border: "none", borderRadius: "7px", cursor: "pointer",
+    fontFamily: "inherit", fontWeight: "700", fontSize: "13px", flexShrink: 0,
   },
   // QUESTION AREA
   questionArea: { flex: 1, padding: "40px 48px", maxWidth: "800px" },
   questionMeta: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
-  questionNum: { fontSize: "13px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace" },
+  questionNum: { fontSize: "14px", color: t.text4, fontFamily: "'IBM Plex Mono', monospace", fontWeight: "600" },
   flagBtn: {
     padding: "6px 14px", background: "transparent", border: `1px solid ${t.borderMid}`,
-    color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontFamily: "inherit"
+    color: t.text4, borderRadius: "6px", cursor: "pointer", fontSize: "14px", fontFamily: "inherit", fontWeight: "600"
   },
   flagBtnActive: { border: "1px solid #facc1560", color: "#facc15", background: "#facc1510" },
   questionText: { fontSize: "22px", fontWeight: "600", color: t.text1, lineHeight: 1.5, marginBottom: "32px" },
@@ -3151,13 +3116,13 @@ function getStyles(t) { return {
   navBtns: { display: "flex", gap: "12px" },
   navTestBtn: {
     padding: "12px 24px", background: t.bgHover, border: `1px solid ${t.borderMid}`,
-    color: t.text3, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "13px"
+    color: t.text3, borderRadius: "8px", cursor: "pointer", fontFamily: "inherit", fontSize: "14px", fontWeight: "600"
   },
   navTestBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
   navTestBtnPrimary: {
     padding: "12px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
     color: "white", border: "none", borderRadius: "8px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "13px"
+    fontFamily: "inherit", fontWeight: "600", fontSize: "14px"
   },
   navTestBtnSubmit: {
     padding: "12px 24px", background: "linear-gradient(135deg, #4ade80, #22c55e)",
@@ -3244,7 +3209,7 @@ function getStyles(t) { return {
   submitTopBtn: {
     padding: "6px 14px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
     color: "white", border: "none", borderRadius: "6px", cursor: "pointer",
-    fontFamily: "inherit", fontWeight: "700", fontSize: "12px"
+    fontFamily: "inherit", fontWeight: "700", fontSize: "15px"
   },
   mobileQNav: {
     background: t.bgCard, borderBottom: `1px solid ${t.borderMid}`,
@@ -3299,11 +3264,11 @@ function getStyles(t) { return {
     zIndex: 9000, pointerEvents: "none", whiteSpace: "nowrap"
   },
   warningChip: {
-    fontSize: "12px", color: "#facc15", background: "#facc1515",
+    fontSize: "14px", color: "#facc15", background: "#facc1515", fontWeight: "600",
     border: "1px solid #facc1540", borderRadius: "20px", padding: "3px 10px"
   },
   fsIndicator: {
-    fontSize: "12px", fontFamily: "inherit"
+    fontSize: "14px", fontFamily: "inherit", fontWeight: "600"
   },
  
   // ─── DB / LOADING ────────────────────────────────────────────────────────────
