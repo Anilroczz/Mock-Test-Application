@@ -824,10 +824,11 @@ function QuizBuilder({ onCreate }) {
     fontSize: "11px", fontWeight: "700", color: t.text3,
     textTransform: "uppercase", letterSpacing: "0.8px",
     marginBottom: "6px", display: "block",
+
   };
   const card = {
     background: t.bgCard, border: `1px solid ${t.border}`,
-    borderRadius: "12px", padding: "20px",
+    borderRadius: "12px", padding: isMobile ? "16px" : "20px",
   };
   const cardTitle = {
     fontSize: "13px", fontWeight: "700", color: t.text1,
@@ -860,11 +861,11 @@ function QuizBuilder({ onCreate }) {
               <div>
                 <label style={lbl}>Quiz Title *</label>
                 <input value={title} onChange={e => setTitle(e.target.value)}
-                  placeholder="e.g. Physiology Full Length Mock Test 1" style={inp} />
+                  placeholder="e.g. Full Length Mock Test 1" style={inp} />
               </div>
  
               {/* Subject + Topic label*/}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "12px" }}>
                 <div>
                   <label style={lbl}>Subject</label>
                   <input value={subject} onChange={e => setSubject(e.target.value)}
@@ -887,17 +888,17 @@ function QuizBuilder({ onCreate }) {
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <input type="number" min="0" max="12" value={durationHr}
                     onChange={e => setDurationHr(+e.target.value)}
-                    style={{ ...inp, width: "64px", textAlign: "center" }} />
+                    style={{ ...inp, width: isMobile ? "56px" : "64px", textAlign: "center", flexShrink: 0 }} />
                   <span style={{ color: t.text4, fontSize: "13px", flexShrink: 0 }}>hr</span>
                   <input type="number" min="0" max="59" value={durationMin}
                     onChange={e => setDurationMin(+e.target.value)}
-                    style={{ ...inp, width: "64px", textAlign: "center" }} />
+                    style={{ ...inp, width: isMobile ? "56px" : "64px", textAlign: "center", flexShrink: 0 }} />
                   <span style={{ color: t.text4, fontSize: "13px", flexShrink: 0 }}>min</span>
                 </div>
               </div>
  
-              {/* Marking + avoid days */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+              {/* Marking */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <div>
                   <label style={lbl}>+ve Mark</label>
                   <input type="number" min="0" step="0.25" value={posMarking}
@@ -908,11 +909,6 @@ function QuizBuilder({ onCreate }) {
                   <input type="number" min="0" step="0.25" value={negMarking}
                     onChange={e => setNegMarking(+e.target.value)} style={inp} />
                 </div>
-                {/* <div>
-                  <label style={lbl}>Total Questions</label>
-                  <input type="number" min="0" value={totalQuestionsCount}
-                    onChange={e => setTotalQuestionsCount(+e.target.value)} style={inp} />
-                </div> */}
               </div>
             </div>
           </div>
@@ -967,8 +963,10 @@ function QuizBuilder({ onCreate }) {
                   <div
                     key={topic}
                     style={{
-                      display: "flex", alignItems: "center", gap: "12px",
-                      padding: "10px 12px", borderRadius: "8px",
+                      display: "flex", alignItems: "center", 
+                      gap: isMobile ? "8px" : "12px",
+                      padding: isMobile ? "10px 8px" : "10px 12px", 
+                      borderRadius: "8px",
                       background: sel.enabled ? "#6366f108" : "transparent",
                       border: `1px solid ${sel.enabled ? "#6366f130" : "transparent"}`,
                       transition: "all 0.15s",
@@ -997,36 +995,42 @@ function QuizBuilder({ onCreate }) {
                     <span
                       onClick={() => toggle(topic, !sel.enabled)}
                       style={{
-                        flex: 1, fontSize: "13px", cursor: "pointer",
+                        flex: 1, fontSize: isMobile ? "12px" : "13px",
+                         cursor: "pointer",
                         fontWeight: sel.enabled ? "700" : "400",
                         color: sel.enabled ? t.text1 : t.text3,
-                        transition: "color 0.15s",
+                        transition: "color 0.15s", minWidth: 0,
+                        wordBreak: "break-word",
                       }}
                     >
                       {topic}
                     </span>
  
                     {/* Count stepper — only active when enabled */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", opacity: sel.enabled ? 1 : 0.3 }}>
-                      <button
-                        onClick={() => sel.enabled && setCount(topic, sel.count - 5)}
-                        style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}
-                      >−5</button>
+                    <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "4px" : "6px", opacity: sel.enabled ? 1 : 0.3, flexShrink: 0  }}>
+                      {!isMobile && (
+                        <button
+                          onClick={() => sel.enabled && setCount(topic, sel.count - 5)}
+                          style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        >−5</button>
+                      )}
                       <button
                         onClick={() => sel.enabled && setCount(topic, sel.count - 1)}
                         style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
                       >−</button>
-                      <span style={{ width: "32px", textAlign: "center", fontSize: "14px", fontWeight: "800", color: t.text1, fontFamily: "'IBM Plex Mono', monospace" }}>
+                      <span style={{ width: isMobile ? "28px" : "32px", textAlign: "center", fontSize: "14px", fontWeight: "800", color: t.text1, fontFamily: "'IBM Plex Mono', monospace" }}>
                         {sel.count}
                       </span>
                       <button
                         onClick={() => sel.enabled && setCount(topic, sel.count + 1)}
                         style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
                       >+</button>
-                      <button
-                        onClick={() => sel.enabled && setCount(topic, sel.count + 5)}
-                        style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}
-                      >+5</button>
+                      {!isMobile && (
+                        <button
+                          onClick={() => sel.enabled && setCount(topic, sel.count + 5)}
+                          style={{ width: "26px", height: "26px", borderRadius: "6px", border: `1px solid ${t.borderMid}`, background: t.bgDeep, color: t.text2, cursor: sel.enabled ? "pointer" : "default", fontFamily: "inherit", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        >+5</button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1050,7 +1054,6 @@ function QuizBuilder({ onCreate }) {
                 { label: "Max Score",      value: `+${maxScore}`,                    color: "#4ade80" },
                 { label: "Duration",       value: `${durationHr}h ${durationMin}m`,  color: t.text2   },
                 { label: "+ve / −ve",      value: `+${posMarking} / −${negMarking}`, color: t.text3   },
-                // { label: "Total",     value: `${avoidDays} days`,               color: t.text4   },
               ].map(s => (
                 <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: "12px", color: t.text4 }}>{s.label}</span>
